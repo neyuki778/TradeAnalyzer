@@ -7,6 +7,7 @@
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize # 导入Normalize
 from order_analyzer import OrderAnalyzer
 import os
 import numpy as np
@@ -118,18 +119,20 @@ class ProfitCorrelationAnalyzer:
         
         # 准备数据
         x_data, y_data = np.meshgrid(np.arange(matrix.shape[1]), np.arange(matrix.shape[0]))
-        x_data = x_data.flatten()
-        y_data = y_data.flatten()
+        x_data = x_data.flatten()[::-1] # 反转顺序以优化遮挡
+        y_data = y_data.flatten()[::-1] # 反转顺序以优化遮挡
         z_data = np.zeros(len(x_data))
         dx, dy = 0.8, 0.8 # 条形宽度
-        dz = matrix.values.flatten()
+        dz = matrix.values.flatten()[::-1] # 反转顺序以优化遮挡
 
-        # 颜色映射
-        cmap = plt.get_cmap('viridis')
-        colors = cmap((dz - dz.min()) / (dz.max() - dz.min()))
+        # 颜色映射 - 改为更经典的热力图颜色
+        cmap = plt.get_cmap('coolwarm')
+        # 标准化颜色值到0-1范围
+        norm = Normalize(dz.min(), dz.max())
+        colors = cmap(norm(dz))
 
         # 绘制3D条形图
-        ax.bar3d(x_data, y_data, z_data, dx, dy, dz, color=colors) # type: ignore
+        ax.bar3d(x_data, y_data, z_data, dx, dy, dz, color=colors, shade=True) # type: ignore
 
         # 设置坐标轴
         ax.set_xticks(np.arange(len(matrix.columns)))
