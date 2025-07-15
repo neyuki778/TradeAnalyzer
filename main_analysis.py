@@ -190,7 +190,21 @@ if __name__ == "__main__":
     csv_file = os.path.join(root_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024-v1.csv")
 
     # 标准分析
-    analyzer, visualizer = analyze_strategy_orders(csv_file, save_plots=False, strategy_name="MACD Long Crypto")
+    # 询问用户是否保存图表
+    save_choice = input("是否保存分析图表？ (y/n, 默认 n): ").lower()
+    should_save_plots = save_choice in ['y', 'yes']
+
+    analyzer, visualizer = analyze_strategy_orders(
+        csv_file,
+        save_plots=should_save_plots,
+        strategy_name="MACD Long Crypto"
+    )
     
     # 创建仪表板（可选）
-    # analyzer, visualizer, dashboard = create_dashboard_analysis(csv_file, save_plot=False, strategy_name="MACD Long Crypto")
+    # dashboard_save_choice = input("是否保存仪表板图表？ (y/n, 默认 n): ").lower()
+    # should_save_dashboard = dashboard_save_choice in ['y', 'yes']
+    # analyzer, visualizer, dashboard = create_dashboard_analysis(
+    #     csv_file,
+    #     save_plot=should_save_dashboard,
+    #     strategy_name="MACD Long Crypto"
+    # )
