@@ -21,13 +21,19 @@ class SymbolAnalysisVisualizer:
     def __init__(self, analyzer: OrderAnalyzer):
         if analyzer.processed_data is None or analyzer.processed_data.empty:
             raise ValueError("传入的分析器没有有效的已处理数据。")
+        self.analyzer = analyzer # 保存分析器实例
         self.df = analyzer.processed_data.copy()
         self.df['Time'] = pd.to_datetime(self.df['Time'])
 
     def _plot_profit_loss_by_position(self, ax):
-        """ 子图1: 【V5.0】按仓位划分的盈亏堆叠条形图 & 百分比标注 """
+        """ 子图1: 【V8.0】按仓位划分的盈亏堆叠条形图 & 仓位范围百分比标注 """
         df = self.df
+        baseline_value = 1_000_000.0
         
+        # 从分析器获取仓位价值范围
+        position_analysis = self.analyzer.generate_position_analysis()
+        value_ranges = position_analysis.get('value_ranges')
+
         profit_by_pos = df[df['Value'] > 0].groupby(['Symbol', 'PositionSize'])['Value'].sum().unstack(fill_value=0)
         loss_by_pos = df[df['Value'] < 0].groupby(['Symbol', 'PositionSize'])['Value'].sum().unstack(fill_value=0)
         
@@ -44,8 +50,14 @@ class SymbolAnalysisVisualizer:
         greens = plt.get_cmap('Greens')
         for i, size in enumerate(profit_by_pos.columns):
             values = profit_by_pos[size]
-            ax.bar(index - bar_width/2, values, bar_width, bottom=bottom_profit, label=f'Win-{size}', color=greens(0.6 + i*0.1))
-            # 添加百分比
+            # 创建带范围百分比的图例标签
+            range_label = ""
+            if value_ranges is not None and size in value_ranges.index:
+                min_percent = (value_ranges.loc[size, 'min'] / baseline_value) * 100
+                max_percent = (value_ranges.loc[size, 'max'] / baseline_value) * 100
+                range_label = f" ({min_percent:.1f}%-{max_percent:.1f}%)"
+
+            ax.bar(index - bar_width/2, values, bar_width, bottom=bottom_profit, label=f'Win-{size}{range_label}', color=greens(0.6 + i*0.1))
             for j, value in enumerate(values):
                 if value > 0:
                     total_profit = profit_by_pos.iloc[j].sum()
@@ -58,8 +70,14 @@ class SymbolAnalysisVisualizer:
         reds = plt.get_cmap('Reds')
         for i, size in enumerate(loss_by_pos.columns):
             values = loss_by_pos[size]
-            ax.bar(index + bar_width/2, values, bar_width, bottom=bottom_loss, label=f'Loss-{size}', color=reds(0.6 + i*0.1))
-            # 添加百分比
+            # 创建带范围百分比的图例标签
+            range_label = ""
+            if value_ranges is not None and size in value_ranges.index:
+                min_percent = (value_ranges.loc[size, 'min'] / baseline_value) * 100
+                max_percent = (value_ranges.loc[size, 'max'] / baseline_value) * 100
+                range_label = f" ({min_percent:.1f}%-{max_percent:.1f}%)"
+            
+            ax.bar(index + bar_width/2, values, bar_width, bottom=bottom_loss, label=f'Loss-{size}{range_label}', color=reds(0.6 + i*0.1))
             for j, value in enumerate(values):
                 if value < 0:
                     total_loss = loss_by_pos.iloc[j].sum()
@@ -119,18 +137,18 @@ class SymbolAnalysisVisualizer:
         
         ax = fig.add_subplot(2, 2, 4, projection='3d')
         
-        x_data, y_data = np.meshgrid(np.arange(monthly_profit.shape[1]), np.arange(monthly_profit.shape[0]))
-        x_data = x_data.flatten()
-        y_data = y_data.flatten()
-        z_data = np.zeros(len(x_data))
-        dx, dy = 0.8, 0.8
-        dz = monthly_profit.values.flatten()
+        X, Y = np.meshgrid(np.arange(monthly_profit.shape[1]), np.arange(monthly_profit.shape[0]))
+        Z = monthly_profit.values
         
-        colors = np.where(dz > 0, 'g', 'r')
+        # 使用 coolwarm colormap, 0点为白色
+        norm = Normalize(vmin=Z.min(), vmax=Z.max())
+        cmap = plt.get_cmap('coolwarm')
+        colors = cmap(norm(Z))
+
+        # 绘制3D曲面图
+        ax.plot_surface(X, Y, Z, facecolors=colors, shade=False) # type: ignore
         
-        ax.bar3d(x_data, y_data, z_data, dx, dy, dz, color=colors, shade=True) # type: ignore
-        
-        ax.set_title('3. 3D Mean Monthly Profit')
+        ax.set_title('3. 3D Monthly Profit Surface')
         ax.set_xticks(np.arange(len(monthly_profit.columns)))
         ax.set_xticklabels(monthly_profit.columns)
         ax.set_yticks(np.arange(len(monthly_profit.index)))
