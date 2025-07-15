@@ -1,5 +1,5 @@
 """
-交易对深度剖析可视化模块
+交易对深度剖析可视化模块 v2.0
 - 创建一个包含多个子图的仪表板，用于对比分析不同交易对的表现。
 - 自动识别长尾分布并使用对数刻度优化可视化。
 """
@@ -20,82 +20,88 @@ class SymbolAnalysisVisualizer:
         if analyzer.processed_data is None or analyzer.processed_data.empty:
             raise ValueError("传入的分析器没有有效的已处理数据。")
         self.df = analyzer.processed_data.copy()
-        # 确保 'Time' 是 datetime 类型
         self.df['Time'] = pd.to_datetime(self.df['Time'])
 
-    def _plot_total_profit_comparison(self, ax):
-        """ 子图1: 各交易对总利润对比 (横向条形图) """
-        profit_by_symbol = self.df.groupby('Symbol')['Value'].sum().sort_values()
-        profit_by_symbol.plot(kind='barh', ax=ax, color=np.where(profit_by_symbol > 0, 'g', 'r'))
-        ax.set_title('1. Total Profit by Symbol')
-        ax.set_xlabel('Total Profit')
-        ax.set_ylabel('Symbol')
-
-    def _plot_profit_distribution(self, ax):
-        """ 子图2: 交易利润分布 (箱线图) """
-        sns.boxplot(data=self.df, x='Value', y='Symbol', ax=ax, orient='h')
-        ax.axvline(0, color='red', linestyle='--')
-        ax.set_title('2. Profit Distribution by Symbol')
-        ax.set_xlabel('Profit per Trade')
-        ax.set_ylabel('')
-
-    def _plot_duration_vs_profit(self, ax):
-        """ 子图3: 持仓时间 vs. 利润 (散点图) """
-        sns.scatterplot(data=self.df, x='Duration', y='Value', hue='Symbol', ax=ax, alpha=0.6)
+    def _plot_profit_loss_by_position(self, ax):
+        """ 子图1: 【V2.0】按仓位划分的盈亏堆叠条形图 & 平均盈亏比 """
+        df = self.df
         
-        # 检查并应用对数刻度
-        if skew(self.df['Duration'].dropna()) > 2:
-            ax.set_xscale('log')
-            ax.set_title('3. Holding Time (Log Scale) vs. Profit')
-        else:
-            ax.set_title('3. Holding Time vs. Profit')
-            
-        if skew(self.df['Value'].dropna()) > 2:
-            ax.set_yscale('symlog', linthresh=100) # 对数刻度，但能处理0和负值
-            ax.set_title(ax.get_title() + ' & Profit (Symlog Scale)')
+        # 1. 按仓位计算盈利和亏损
+        profit_by_pos = df[df['Value'] > 0].groupby(['Symbol', 'PositionSize'])['Value'].sum().unstack(fill_value=0)
+        loss_by_pos = df[df['Value'] < 0].groupby(['Symbol', 'PositionSize'])['Value'].sum().unstack(fill_value=0)
+        
+        # 2. 绘制堆叠条形图
+        profit_by_pos.plot(kind='bar', stacked=True, ax=ax, colormap='Greens_r')
+        loss_by_pos.plot(kind='bar', stacked=True, ax=ax, colormap='Reds')
+        
+        # 3. 计算并标注平均盈亏比
+        avg_win = df[df['Value'] > 0].groupby('Symbol')['Value'].mean()
+        avg_loss = abs(df[df['Value'] < 0].groupby('Symbol')['Value'].mean())
+        avg_ratio = (avg_win / avg_loss).fillna(0)
 
-        ax.axhline(0, color='red', linestyle='--')
-        ax.set_xlabel('Holding Time (hours)')
-        ax.set_ylabel('Profit per Trade')
+        for i, symbol in enumerate(profit_by_pos.index):
+            total_profit = profit_by_pos.loc[symbol].sum()
+            ratio = avg_ratio.get(symbol, 0)
+            ax.text(i, total_profit, f' {ratio:.1f}:1', ha='center', va='bottom', color='blue', fontsize=9, weight='bold')
 
-    def _plot_position_size_contribution(self, ax):
-        """ 子图4: 仓位大小贡献分析 (堆叠条形图) """
-        profit_contrib = self.df.groupby(['Symbol', 'PositionSize'])['Value'].sum().unstack(fill_value=0)
-        profit_contrib.plot(kind='bar', stacked=True, ax=ax, cmap='coolwarm')
-        ax.set_title('4. Profit Contribution by Position Size')
-        ax.set_ylabel('Total Profit')
+        ax.set_title('1. Profit/Loss Breakdown by Position Size')
+        ax.set_ylabel('Amount')
         ax.tick_params(axis='x', rotation=45)
+        ax.legend(title='Position Size')
+        ax.axhline(0, color='black', linewidth=0.8)
+
+    def _plot_profit_duration_density(self, ax):
+        """ 子图2: 【保留】利润/持仓时间密度图 + 离群散点 """
+        df = self.df
+        
+        use_log_x = skew(df['Duration'].dropna()) > 2
+        use_symlog_y = skew(df['Value'].dropna()) > 2
+        
+        sns.kdeplot(data=df, x='Duration', y='Value', fill=True, thresh=0, levels=10, cmap="mako", ax=ax)
+        
+        profit_q = df['Value'].quantile([0.05, 0.95])
+        duration_q = df['Duration'].quantile(0.95)
+        outliers = df[
+            (df['Value'] < profit_q.iloc[0]) | (df['Value'] > profit_q.iloc[1]) |
+            (df['Duration'] > duration_q)
+        ]
+        sns.scatterplot(data=outliers, x='Duration', y='Value', hue='Symbol', ax=ax, style='PositionSize', s=50)
+        
+        if use_log_x:
+            ax.set_xscale('log')
+        if use_symlog_y:
+            ax.set_yscale('symlog', linthresh=100)
+            
+        ax.set_title('2. Profit/Duration Density with Outliers')
+        ax.set_xlabel(f'Holding Time (hours){" - Log Scale" if use_log_x else ""}')
+        ax.set_ylabel(f'Profit per Trade{" - Symlog Scale" if use_symlog_y else ""}')
+        ax.axhline(0, color='red', linestyle='--')
 
     def _plot_monthly_performance(self, ax):
-        """ 子图5: 月度表现热力图 """
+        """ 子图3: 【保留】月度表现热力图 """
         self.df['Month'] = self.df['Time'].dt.month
         monthly_profit = self.df.groupby(['Symbol', 'Month'])['Value'].mean().unstack()
         sns.heatmap(monthly_profit, ax=ax, cmap='coolwarm', annot=True, fmt=".0f")
-        ax.set_title('5. Mean Monthly Profit by Symbol')
+        ax.set_title('3. Mean Monthly Profit by Symbol')
         ax.set_xlabel('Month')
         ax.set_ylabel('Symbol')
 
     def create_dashboard(self, save_plot=False, strategy_name="Strategy"):
         """
-        创建并显示/保存完整的“交易对深度剖析仪表板”
+        创建并显示/保存 v3.0 仪表板
         """
         plt.style.use('seaborn-v0_8-whitegrid')
-        fig = plt.figure(figsize=(20, 18))
-        gs = fig.add_gridspec(3, 2) # 3行2列的网格布局
-
-        ax1 = fig.add_subplot(gs[0, 0])
-        ax2 = fig.add_subplot(gs[0, 1])
-        ax3 = fig.add_subplot(gs[1, :]) # 第2行横跨整行
-        ax4 = fig.add_subplot(gs[2, 0])
-        ax5 = fig.add_subplot(gs[2, 1])
+        fig, axes = plt.subplots(2, 2, figsize=(20, 18))
         
-        self._plot_total_profit_comparison(ax1)
-        self._plot_profit_distribution(ax2)
-        self._plot_duration_vs_profit(ax3)
-        self._plot_position_size_contribution(ax4)
-        self._plot_monthly_performance(ax5)
+        # 重新安排布局
+        self._plot_profit_loss_by_position(axes[0, 0])
+        self._plot_profit_duration_density(axes[0, 1])
+        self._plot_monthly_performance(axes[1, 0])
+        
+        # 隐藏右下角未使用的子图
+        axes[1, 1].set_visible(False)
 
-        fig.suptitle(f'{strategy_name} - Symbol Analysis Dashboard', fontsize=24, weight='bold')
+        fig.suptitle(f'{strategy_name} - Symbol Analysis Dashboard v3.0', fontsize=24, weight='bold')
         plt.tight_layout(rect=(0, 0, 1, 0.96))
 
         if save_plot:
