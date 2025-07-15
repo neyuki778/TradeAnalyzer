@@ -1,4 +1,4 @@
-# 深度订单分析与可视化工具 (Advanced Order Analysis & Visualization Toolkit)
+# 深度订单分析与可视化工具
 
 ## 📊 功能概述
 
@@ -75,6 +75,14 @@ python symbol_analysis_visualizer.py
 
 由 `symbol_analysis_visualizer.py` 生成。该图为每个交易对创建一个独立的子图，以精细化地展示仓位大小与盈利的关系，并能自动处理长尾分布。
 
+## ✨ 图表示例
+
+### 主仪表板
+![主仪表板](MACD-long-crypto/macd_long_crypto_main_dashboard.png)
+
+### 利润来源分析
+![利润来源分析](MACD-long-stock/macd_long_stock_profit_source_analysis.png)
+
 ## ⚙️ 核心特性
 
 - ✅ **多维深度分析**: 提供远超基本统计的深度洞察。
@@ -85,7 +93,7 @@ python symbol_analysis_visualizer.py
 - ✅ **模块化设计**: 每个分析功能都在独立的脚本中，易于使用和扩展。
 - ✅ **交互式选择**: 可在运行时选择是否保存生成的图表。
 
-## 📋 数据格式要求(直接使用的情况下)
+## 📋 数据格式要求
 
 CSV文件必须包含以下列：
 - `Time`: 时间戳
