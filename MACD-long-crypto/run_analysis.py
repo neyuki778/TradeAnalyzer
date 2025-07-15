@@ -22,7 +22,7 @@ def main():
     print("=" * 60)
     
     # 订单数据文件路径
-    csv_file = os.path.join(orders_analysis_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024.csv")
+    csv_file = os.path.join(orders_analysis_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024-v1.csv")
 
     # 检查文件是否存在
     if not os.path.exists(csv_file):

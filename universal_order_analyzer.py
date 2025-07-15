@@ -126,10 +126,8 @@ def main():
                 strategy_prefix = strategy_name.lower().replace(' ', '_').replace('-', '_')
                 chart_patterns = [
                     f"{strategy_prefix}_position_analysis.png",
-                    f"{strategy_prefix}_returns_analysis.png", 
-                    f"{strategy_prefix}_comprehensive_analysis.png",
                     f"{strategy_prefix}_profit_source_analysis.png",
-                    f"{strategy_prefix}_timeseries_analysis.png"
+                    f"{strategy_prefix}_performance_overview.png"
                 ]
                 
                 for pattern in chart_patterns:

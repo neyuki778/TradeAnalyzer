@@ -72,46 +72,37 @@ def analyze_strategy_orders(csv_file_path, save_plots=False, show_plots=True, st
                     
                     fig.savefig(filename, dpi=safe_dpi, bbox_inches='tight')
                 
-                # 生成各种图表
+                # 生成核心图表 - 聚焦利润来源分析
                 print("生成图表...")
+                
+                # 1. 详细仓位分析 (用户要求保留)
                 fig1 = visualizer.plot_position_size_analysis()
                 filename1 = f"{prefix}_position_analysis.png"
                 safe_savefig(fig1, filename1)
                 saved_files.append(filename1)
                 
-                fig2 = visualizer.plot_return_type_analysis()
-                filename2 = f"{prefix}_returns_analysis.png"
+                # 2. 核心利润来源分析 (替换多个冗余图表)
+                fig2 = visualizer.plot_profit_source_analysis()
+                filename2 = f"{prefix}_profit_source_analysis.png"
                 safe_savefig(fig2, filename2)
                 saved_files.append(filename2)
                 
-                fig3 = visualizer.plot_comprehensive_analysis()
-                filename3 = f"{prefix}_comprehensive_analysis.png"
+                # 3. 可选：性能总览 (简化版)
+                fig3 = visualizer.plot_performance_overview()
+                filename3 = f"{prefix}_performance_overview.png"
                 safe_savefig(fig3, filename3)
                 saved_files.append(filename3)
-                
-                # 新增：利润来源深度分析
-                fig4 = visualizer.plot_profit_source_analysis()
-                filename4 = f"{prefix}_profit_source_analysis.png"
-                safe_savefig(fig4, filename4)
-                saved_files.append(filename4)
-                
-                fig5 = visualizer.plot_time_series_analysis()
-                filename5 = f"{prefix}_timeseries_analysis.png"
-                safe_savefig(fig5, filename5)
-                saved_files.append(filename5)
                 
                 print(f"\n📊 已保存图表文件:")
                 for file in saved_files:
                     print(f"  - {file}")
             
             if show_plots:
-                # 显示图表
+                # 显示核心图表 - 聚焦利润来源分析
                 print("🖥️ 显示模式：将显示交互式图表")
-                visualizer.plot_position_size_analysis()
-                visualizer.plot_return_type_analysis()
-                visualizer.plot_comprehensive_analysis()
-                visualizer.plot_profit_source_analysis()  # 新增
-                visualizer.plot_time_series_analysis()
+                visualizer.plot_position_size_analysis()  # 详细仓位分析 (用户要求保留)
+                visualizer.plot_profit_source_analysis()  # 核心利润来源分析
+                visualizer.plot_performance_overview()    # 性能总览
                 plt.show()
         
         print(f"\n✅ {strategy_name} 策略分析完成!")
@@ -196,7 +187,7 @@ def create_dashboard_analysis(csv_file_path, save_plot=False, strategy_name="Str
 if __name__ == "__main__":
     root_dir = os.path.abspath(os.path.join(os.getcwd()))
     # 示例用法
-    csv_file = os.path.join(root_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024.csv")
+    csv_file = os.path.join(root_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024-v1.csv")
 
     # 标准分析
     analyzer, visualizer = analyze_strategy_orders(csv_file, save_plots=False, strategy_name="MACD Long Crypto")

@@ -254,49 +254,283 @@ class OrderVisualizer:
         
         plt.tight_layout()
     
-    def plot_return_type_analysis(self, figsize=(15, 10)):
-        """可视化不同收益类型的分析"""
+    def plot_profit_source_analysis(self, figsize=(18, 12)):
+        """核心利润来源分析 - 专注于关键维度"""
+        fig, axes = plt.subplots(3, 3, figsize=figsize)
+        fig.suptitle('Profit Source Analysis - Key Dimensions', fontsize=20, fontweight='bold')
+        
+        # 1. 仓位大小利润总览
+        position_stats = self.data.groupby('PositionSize')['Value'].agg(['sum', 'mean', 'count']).round(2)
+        position_stats = position_stats.sort_values('sum', ascending=False)
+        
+        bars = position_stats['sum'].plot(kind='bar', ax=axes[0,0], color='lightcoral', alpha=0.8)
+        axes[0,0].set_title('Profit by Position Size', fontsize=14, fontweight='bold')
+        axes[0,0].set_ylabel('Total Return')
+        axes[0,0].tick_params(axis='x', rotation=45)
+        axes[0,0].axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        # 添加数值标签
+        for i, (pos, row) in enumerate(position_stats.iterrows()):
+            axes[0,0].text(i, row['sum'], f'{row["sum"]:.0f}\n({row["count"]})', 
+                          ha='center', va='bottom' if row['sum'] >= 0 else 'top', fontsize=10)
+        
+        # 2. 持仓时间利润分解
+        if 'Duration' in self.data.columns:
+            duration_bins = pd.cut(self.data['Duration'], bins=6, 
+                                 labels=['<6h', '6-12h', '12-24h', '1-3d', '3-7d', '>7d'])
+            duration_stats = self.data.groupby(duration_bins)['Value'].agg(['sum', 'mean', 'count']).round(2)
+            
+            duration_stats['sum'].plot(kind='bar', ax=axes[0,1], 
+                                     color=['lightgreen', 'green', 'orange', 'red', 'purple', 'brown'])
+            axes[0,1].set_title('Profit by Holding Duration', fontsize=14, fontweight='bold')
+            axes[0,1].set_ylabel('Total Return')
+            axes[0,1].tick_params(axis='x', rotation=45)
+            axes[0,1].axhline(y=0, color='black', linestyle='-', alpha=0.3)
+            
+            # 添加数值标签
+            for i, (dur, row) in enumerate(duration_stats.iterrows()):
+                if not pd.isna(row['sum']):
+                    axes[0,1].text(i, row['sum'], f'{row["sum"]:.0f}\n({row["count"]})', 
+                                  ha='center', va='bottom' if row['sum'] >= 0 else 'top', fontsize=10)
+        else:
+            axes[0,1].text(0.5, 0.5, 'Duration data not available', 
+                          ha='center', va='center', transform=axes[0,1].transAxes)
+            axes[0,1].set_title('Holding Duration Analysis')
+        
+        # 3. 交易对利润贡献 & 胜率
+        symbol_analysis = []
+        for symbol in self.data['Symbol'].unique():
+            symbol_data = self.data[self.data['Symbol'] == symbol]
+            profit_trades = symbol_data[symbol_data['Value'] > 0]
+            total_trades = len(symbol_data)
+            total_return = symbol_data['Value'].sum()
+            win_rate = len(profit_trades) / total_trades * 100 if total_trades > 0 else 0
+            
+            symbol_analysis.append({
+                'Symbol': symbol,
+                'Total_Return': total_return,
+                'Win_Rate': win_rate,
+                'Trade_Count': total_trades
+            })
+        
+        symbol_df = pd.DataFrame(symbol_analysis).set_index('Symbol')
+        symbol_df = symbol_df.sort_values('Total_Return', ascending=False)
+        
+        # 双轴图：总收益 + 胜率
+        ax3_1 = axes[0,2]
+        ax3_2 = ax3_1.twinx()
+        
+        symbol_df['Total_Return'].plot(kind='bar', ax=ax3_1, color='skyblue', alpha=0.8)
+        ax3_1.set_ylabel('Total Return', color='blue')
+        ax3_1.tick_params(axis='y', labelcolor='blue')
+        ax3_1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        symbol_df['Win_Rate'].plot(kind='line', ax=ax3_2, color='red', marker='o', linewidth=2)
+        ax3_2.set_ylabel('Win Rate (%)', color='red')
+        ax3_2.tick_params(axis='y', labelcolor='red')
+        ax3_2.set_ylim(0, 100)
+        
+        ax3_1.set_title('Profit by Trading Pair & Win Rate', fontsize=14, fontweight='bold')
+        ax3_1.tick_params(axis='x', rotation=45)
+        
+        # 4. 月度交易活动与收益
+        monthly_stats = self.data.groupby(self.data['Time'].dt.to_period('M'))['Value'].agg(['sum', 'mean', 'count']).round(2)
+        
+        ax4_1 = axes[1,0]
+        ax4_2 = ax4_1.twinx()
+        
+        monthly_stats['count'].plot(kind='bar', ax=ax4_1, color='lightblue', alpha=0.7, width=0.6)
+        ax4_1.set_ylabel('Trade Count', color='blue')
+        ax4_1.tick_params(axis='y', labelcolor='blue')
+        
+        monthly_stats['sum'].plot(kind='line', ax=ax4_2, color='red', marker='o', linewidth=2)
+        ax4_2.set_ylabel('Monthly Return', color='red')
+        ax4_2.tick_params(axis='y', labelcolor='red')
+        ax4_2.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+        
+        ax4_1.set_title('Monthly Activity & Returns', fontsize=14, fontweight='bold')
+        ax4_1.tick_params(axis='x', rotation=45)
+        
+        # 5. 小时分析（开仓时机）
+        self.data['OpenHour'] = self.data['Time'].dt.hour
+        hourly_stats = self.data.groupby('OpenHour')['Value'].agg(['sum', 'mean', 'count'])
+        
+        ax5_1 = axes[1,1]
+        ax5_2 = ax5_1.twinx()
+        
+        hourly_stats['sum'].plot(kind='bar', ax=ax5_1, color='lightgreen', alpha=0.7)
+        ax5_1.set_ylabel('Total Return', color='green')
+        ax5_1.tick_params(axis='y', labelcolor='green')
+        ax5_1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        hourly_stats['count'].plot(kind='line', ax=ax5_2, color='orange', marker='s', linewidth=2)
+        ax5_2.set_ylabel('Trade Count', color='orange')
+        ax5_2.tick_params(axis='y', labelcolor='orange')
+        
+        ax5_1.set_title('Profit by Opening Hour', fontsize=14, fontweight='bold')
+        ax5_1.set_xlabel('Hour of Day')
+        
+        # 6. 方向分析（买卖）
+        if 'Type' in self.data.columns:
+            direction_stats = self.data.groupby('Type')['Value'].agg(['sum', 'mean', 'count'])
+            
+            # 创建饼图显示方向分布
+            direction_counts = self.data['Type'].value_counts()
+            colors = ['lightcoral', 'lightblue', 'lightgreen', 'orange'][:len(direction_counts)]
+            axes[1,2].pie(direction_counts.values, labels=direction_counts.index, autopct='%1.1f%%', 
+                         colors=colors, startangle=90)
+            axes[1,2].set_title('Trade Direction Distribution', fontsize=14, fontweight='bold')
+        else:
+            axes[1,2].text(0.5, 0.5, 'Direction data not available', 
+                          ha='center', va='center', transform=axes[1,2].transAxes)
+        
+        # 7. 累计收益曲线
+        data_sorted = self.data.sort_values('Time')
+        cumulative_pnl = data_sorted['Value'].cumsum()
+        axes[2,0].plot(data_sorted['Time'], cumulative_pnl, linewidth=2, color='navy')
+        axes[2,0].set_title('Cumulative Returns', fontsize=14, fontweight='bold')
+        axes[2,0].set_ylabel('Cumulative Return')
+        axes[2,0].tick_params(axis='x', rotation=45)
+        axes[2,0].grid(True, alpha=0.3)
+        axes[2,0].axhline(y=0, color='red', linestyle='--', alpha=0.5)
+        
+        # 8. 盈亏分布
+        profit_data = self.data[self.data['Value'] > 0]['Value']
+        loss_data = self.data[self.data['Value'] < 0]['Value']
+        
+        axes[2,1].hist([profit_data, loss_data], bins=30, alpha=0.7, 
+                      color=['lightgreen', 'lightcoral'], label=['Profit', 'Loss'])
+        axes[2,1].set_title('Return Distribution', fontsize=14, fontweight='bold')
+        axes[2,1].set_xlabel('Return Amount')
+        axes[2,1].set_ylabel('Frequency')
+        axes[2,1].legend()
+        axes[2,1].axvline(x=0, color='black', linestyle='--', alpha=0.5)
+        
+        # 9. 风险收益散点图
+        position_risk_return = self.data.groupby('PositionSize')['Value'].agg(['mean', 'std']).fillna(0)
+        
+        colors = ['red', 'orange', 'green', 'blue', 'purple'][:len(position_risk_return)]
+        for i, (pos_size, row) in enumerate(position_risk_return.iterrows()):
+            axes[2,2].scatter(row['std'], row['mean'], s=100, color=colors[i], alpha=0.7, label=pos_size)
+        
+        axes[2,2].set_xlabel('Risk (Return Std Dev)')
+        axes[2,2].set_ylabel('Expected Return')
+        axes[2,2].set_title('Risk-Return by Position Size', fontsize=14, fontweight='bold')
+        axes[2,2].legend()
+        axes[2,2].grid(True, alpha=0.3)
+        axes[2,2].axhline(y=0, color='red', linestyle='--', alpha=0.5)
+        axes[2,2].axvline(x=0, color='red', linestyle='--', alpha=0.5)
+        
+        plt.tight_layout()
+        return fig
+    
+    def plot_performance_overview(self, figsize=(16, 8)):
+        """策略表现总览 - 简化版"""
         fig, axes = plt.subplots(2, 2, figsize=figsize)
-        fig.suptitle('Return Type Analysis', fontsize=16, fontweight='bold')
+        fig.suptitle('Strategy Performance Overview', fontsize=18, fontweight='bold')
         
-        # 1. 盈亏分布
-        return_counts = self.data['ReturnType'].value_counts()
-        colors = ['lightgreen' if x == 'Profit' else 'lightcoral' for x in return_counts.index]
-        axes[0,0].pie(return_counts.values, labels=return_counts.index, autopct='%1.1f%%', 
+        # 1. 累计收益曲线
+        data_sorted = self.data.sort_values('Time')
+        cumulative_pnl = data_sorted['Value'].cumsum()
+        axes[0,0].plot(data_sorted['Time'], cumulative_pnl, linewidth=2, color='navy')
+        axes[0,0].set_title('Cumulative Returns', fontsize=14, fontweight='bold')
+        axes[0,0].set_ylabel('Cumulative Return')
+        axes[0,0].tick_params(axis='x', rotation=45)
+        axes[0,0].grid(True, alpha=0.3)
+        axes[0,0].axhline(y=0, color='red', linestyle='--', alpha=0.5)
+        
+        # 2. 月度收益与交易数量
+        monthly_stats = self.data.groupby(self.data['Time'].dt.to_period('M'))['Value'].agg(['sum', 'count'])
+        
+        ax2_1 = axes[0,1]
+        ax2_2 = ax2_1.twinx()
+        
+        monthly_stats['sum'].plot(kind='bar', ax=ax2_1, color='lightblue', alpha=0.7)
+        ax2_1.set_ylabel('Monthly Return', color='blue')
+        ax2_1.tick_params(axis='y', labelcolor='blue')
+        ax2_1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        monthly_stats['count'].plot(kind='line', ax=ax2_2, color='red', marker='o', linewidth=2)
+        ax2_2.set_ylabel('Trade Count', color='red')
+        ax2_2.tick_params(axis='y', labelcolor='red')
+        
+        ax2_1.set_title('Monthly Performance', fontsize=14, fontweight='bold')
+        ax2_1.tick_params(axis='x', rotation=45)
+        
+        # 3. 仓位大小分布
+        position_counts = self.data['PositionSize'].value_counts()
+        colors = plt.cm.Set3(np.arange(len(position_counts)))
+        axes[1,0].pie(position_counts.values, labels=position_counts.index, autopct='%1.1f%%', 
                      colors=colors, startangle=90)
-        axes[0,0].set_title('Profit/Loss Distribution')
+        axes[1,0].set_title('Position Size Distribution', fontsize=14, fontweight='bold')
         
-        # 2. 不同收益类型的金额分布
-        sns.boxplot(data=self.data, x='ReturnType', y='AbsValue', ax=axes[0,1])
-        axes[0,1].set_title('Order Value Distribution by P&L Type')
-        axes[0,1].set_ylabel('Order Value')
+        # 4. 交易对收益贡献
+        symbol_contribution = self.data.groupby('Symbol')['Value'].sum().sort_values(ascending=False)
+        symbol_contribution.plot(kind='bar', ax=axes[1,1], color='lightcoral')
+        axes[1,1].set_title('Return by Trading Pair', fontsize=14, fontweight='bold')
+        axes[1,1].set_ylabel('Total Return')
+        axes[1,1].tick_params(axis='x', rotation=45)
+        axes[1,1].axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        plt.tight_layout()
+        return fig
+    
+    def plot_detailed_profit_analysis(self, figsize=(16, 12)):
+        """详细利润分析 - 补充图表"""
+        fig, axes = plt.subplots(3, 2, figsize=figsize)
+        fig.suptitle('Detailed Profit Analysis', fontsize=18, fontweight='bold')
+        
+        # 1. 月度收益波动性分析
+        monthly_stats = self.data.groupby(self.data['Time'].dt.to_period('M'))['Value'].agg(['sum', 'mean', 'std']).round(2)
+        monthly_avg_return = monthly_stats['mean']
+        monthly_volatility = monthly_stats['std'].fillna(0)
+        
+        ax1_1 = axes[0,0]
+        ax1_2 = ax1_1.twinx()
+        
+        colors_monthly = ['gold' if x > 0 else 'lightcoral' for x in monthly_avg_return]
+        monthly_avg_return.plot(kind='bar', ax=ax1_1, color=colors_monthly, alpha=0.8)
+        ax1_1.set_ylabel('Average Return per Trade', color='darkgreen')
+        ax1_1.tick_params(axis='y', labelcolor='darkgreen')
+        ax1_1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        monthly_volatility.plot(kind='line', ax=ax1_2, color='purple', marker='s', linewidth=2, markersize=4)
+        ax1_2.set_ylabel('Return Volatility', color='purple')
+        ax1_2.tick_params(axis='y', labelcolor='purple')
+        
+        ax1_1.set_title('Monthly Performance & Volatility', fontsize=14, fontweight='bold')
+        ax1_1.tick_params(axis='x', rotation=45)
+        
+        # 2. 盈亏对比分析
+        contribution_data = {
+            'Profit': self.data[self.data['Value'] > 0].groupby('PositionSize')['Value'].sum(),
+            'Loss': self.data[self.data['Value'] < 0].groupby('PositionSize')['Value'].sum()
+        }
+        
+        contribution_df = pd.DataFrame(contribution_data).fillna(0)
+        contribution_df.plot(kind='bar', ax=axes[0,1], color=['lightgreen', 'lightcoral'])
+        axes[0,1].set_title('Profit vs Loss by Position Size', fontsize=14, fontweight='bold')
+        axes[0,1].set_ylabel('Return Amount')
+        axes[0,1].tick_params(axis='x', rotation=45)
+        axes[0,1].axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        axes[0,1].legend()
+        
+        # 3. 仓位规模与收益散点图
+        unique_positions = sorted(self.data['PositionSize'].unique())
+        color_map = {pos: i for i, pos in enumerate(unique_positions)}
+        colors = [color_map[pos] for pos in self.data['PositionSize']]
+        
+        scatter = axes[1,0].scatter(self.data['AbsValue'], self.data['Value'], 
+                                   c=colors, cmap='viridis', alpha=0.6)
+        axes[1,0].set_xlabel('Position Size (Absolute Value)')
+        axes[1,0].set_ylabel('Return')
+        axes[1,0].set_title('Position Size vs Return Scatter', fontsize=14, fontweight='bold')
+        axes[1,0].axhline(y=0, color='red', linestyle='--', alpha=0.5)
         
         # 应用智能坐标轴
-        self._apply_smart_scale(axes[0,1], self.data['AbsValue'], axis='y')
+        self._apply_smart_scale(axes[1,0], self.data['AbsValue'], axis='x')
         
-        # 3. 持仓时间vs收益分析
-        if 'Duration' in self.data.columns:
-            # 创建持仓时间分组
-            duration_bins = pd.cut(self.data['Duration'], bins=6, 
-                                 labels=['Very Short', 'Short', 'Medium', 'Long', 'Very Long', 'Ultra Long'])
-            duration_returns = self.data.groupby(duration_bins)['Value'].agg(['sum', 'mean', 'count'])
-            
-            # 绘制持仓时间vs总收益
-            duration_returns['sum'].plot(kind='bar', ax=axes[1,0], 
-                                       color=['lightblue', 'skyblue', 'orange', 'coral', 'red', 'darkred'])
-            axes[1,0].set_title('Returns by Holding Duration')
-            axes[1,0].set_ylabel('Total Return')
-            axes[1,0].tick_params(axis='x', rotation=45)
-            
-            # 添加数据标签
-            for i, v in enumerate(duration_returns['sum']):
-                axes[1,0].text(i, v, f'{v:.0f}', ha='center', va='bottom' if v >= 0 else 'top')
-        else:
-            axes[1,0].text(0.5, 0.5, 'Duration data not available', 
-                          ha='center', va='center', transform=axes[1,0].transAxes)
-            axes[1,0].set_title('Holding Duration Analysis')
-        
-        # 4. 交易对盈亏比分析 (金额比率)
+        # 4. 交易对胜率与盈亏比
         symbol_analysis = []
         for symbol in self.data['Symbol'].unique():
             symbol_data = self.data[self.data['Symbol'] == symbol]
@@ -307,318 +541,62 @@ class OrderVisualizer:
             loss_count = len(loss_trades)
             total_trades = len(symbol_data)
             
-            # 计算胜率
-            win_rate = profit_count / total_trades * 100
-            
-            # 计算真正的盈亏比：平均盈利金额 / 平均亏损金额
+            win_rate = profit_count / total_trades * 100 if total_trades > 0 else 0
             avg_profit = profit_trades['Value'].mean() if profit_count > 0 else 0
-            avg_loss = abs(loss_trades['Value'].mean()) if loss_count > 0 else 1  # 取绝对值
+            avg_loss = abs(loss_trades['Value'].mean()) if loss_count > 0 else 1
             profit_loss_ratio = avg_profit / avg_loss if avg_loss > 0 else 0
             
             symbol_analysis.append({
                 'Symbol': symbol,
                 'Win_Rate': win_rate,
                 'Profit_Loss_Ratio': profit_loss_ratio,
-                'Avg_Profit': avg_profit,
-                'Avg_Loss': avg_loss,
                 'Total_Trades': total_trades
             })
         
         symbol_df = pd.DataFrame(symbol_analysis).set_index('Symbol')
         
-        # 创建双轴图表
-        ax1 = axes[1,1]
-        ax2 = ax1.twinx()
-        
-        # 绘制盈亏比（左轴）
-        bars1 = symbol_df['Profit_Loss_Ratio'].plot(kind='bar', ax=ax1, color='lightseagreen', alpha=0.7, width=0.4, position=0)
-        ax1.set_ylabel('Profit/Loss Ratio (Amount)', color='darkslategray')
-        ax1.tick_params(axis='y', labelcolor='darkslategray')
-        ax1.axhline(y=1, color='red', linestyle='--', alpha=0.7, label='Break-even')
-        
-        # 绘制胜率（右轴）
-        bars2 = symbol_df['Win_Rate'].plot(kind='bar', ax=ax2, color='orange', alpha=0.7, width=0.4, position=1)
-        ax2.set_ylabel('Win Rate (%)', color='darkorange')
-        ax2.tick_params(axis='y', labelcolor='darkorange')
-        ax2.set_ylim(0, 100)
-        
-        ax1.set_title('Profit-Loss Ratio & Win Rate by Trading Pair')
-        ax1.tick_params(axis='x', rotation=45)
-        
-        # 添加数值标签
-        for i, (symbol, row) in enumerate(symbol_df.iterrows()):
-            # 盈亏比标签
-            ax1.text(i, row['Profit_Loss_Ratio'], f'{row["Profit_Loss_Ratio"]:.2f}', 
-                    ha='center', va='bottom', fontsize=8, color='darkslategray')
-            # 胜率标签
-            ax2.text(i, row['Win_Rate'], f'{row["Win_Rate"]:.0f}%', 
-                    ha='center', va='bottom', fontsize=8, color='darkorange')
-        
-        # 图例
-        ax1.legend(['P/L Ratio', 'Break-even'], loc='upper left')
-        ax2.legend(['Win Rate'], loc='upper right')
-        
-        plt.tight_layout()
-        return fig
-    
-    def plot_comprehensive_analysis(self, figsize=(16, 10)):
-        """利润来源综合分析图表"""
-        fig, axes = plt.subplots(2, 3, figsize=figsize)
-        fig.suptitle('Strategy Profit Source Analysis', fontsize=18, fontweight='bold')
-        
-        # 1. 时间序列累计收益 (保留)
-        data_sorted = self.data.sort_values('Time')
-        cumulative_pnl = data_sorted['Value'].cumsum()
-        axes[0,0].plot(data_sorted['Time'], cumulative_pnl, linewidth=2, color='navy')
-        axes[0,0].set_title('Cumulative Returns')
-        axes[0,0].set_ylabel('Cumulative Return')
-        axes[0,0].tick_params(axis='x', rotation=45)
-        axes[0,0].grid(True, alpha=0.3)
-        
-        # 2. 开仓时间段分析 (替换交易频率)
-        # 分析一天中不同小时的开仓表现
-        self.data['OpenHour'] = self.data['Time'].dt.hour
-        hourly_performance = self.data.groupby('OpenHour')['Value'].agg(['sum', 'mean', 'count'])
-        
-        # 创建双轴图
-        ax2_1 = axes[0,1]
-        ax2_2 = ax2_1.twinx()
-        
-        # 绘制每小时总收益
-        ax2_1.bar(hourly_performance.index, hourly_performance['sum'], alpha=0.7, color='lightblue', label='Total Return')
-        ax2_1.set_ylabel('Total Return', color='blue')
-        ax2_1.tick_params(axis='y', labelcolor='blue')
-        
-        # 绘制交易数量
-        ax2_2.plot(hourly_performance.index, hourly_performance['count'], color='red', marker='o', linewidth=2, label='Trade Count')
-        ax2_2.set_ylabel('Number of Trades', color='red')
-        ax2_2.tick_params(axis='y', labelcolor='red')
-        
-        ax2_1.set_title('Profit by Opening Hour')
-        ax2_1.set_xlabel('Hour of Day')
-        ax2_1.grid(True, alpha=0.3)
-        
-        # 3. 仓位大小vs收益散点图 (保留)
-        unique_positions = sorted(self.data['PositionSize'].unique())
-        color_map = {pos: i for i, pos in enumerate(unique_positions)}
-        colors = [color_map[pos] for pos in self.data['PositionSize']]
-        
-        scatter = axes[0,2].scatter(self.data['AbsValue'], self.data['Value'], 
-                                  c=colors, cmap='viridis', alpha=0.6)
-        axes[0,2].set_xlabel('Position Size (Absolute Value)')
-        axes[0,2].set_ylabel('Return')
-        axes[0,2].set_title('Position Size vs Return')
-        
-        # 应用智能坐标轴
-        self._apply_smart_scale(axes[0,2], self.data['AbsValue'], axis='x')
-        
-        cbar = plt.colorbar(scatter, ax=axes[0,2])
-        cbar.set_label('Position Size Category')
-        
-        # 4. 交易对收益贡献 (保留)
-        symbol_contribution = self.data.groupby('Symbol')['Value'].sum().sort_values(ascending=False)
-        symbol_contribution.plot(kind='bar', ax=axes[1,0], color='lightcoral')
-        axes[1,0].set_title('Return Contribution by Trading Pair')
-        axes[1,0].set_ylabel('Total Return')
-        axes[1,0].tick_params(axis='x', rotation=45)
-        
-        # 5. 持仓时长vs收益分析 (保留，但优化)
-        if 'Duration' in self.data.columns:
-            # 创建更细致的持仓时间分组
-            duration_bins = pd.cut(self.data['Duration'], bins=8, 
-                                 labels=['<2h', '2-6h', '6-12h', '12-24h', '1-2d', '2-4d', '4-7d', '>7d'])
-            duration_returns = self.data.groupby(duration_bins)['Value'].agg(['sum', 'mean', 'count'])
-            
-            duration_returns['sum'].plot(kind='bar', ax=axes[1,1], 
-                                       color=['lightgreen', 'green', 'orange', 'red', 'purple', 'brown', 'pink', 'gray'])
-            axes[1,1].set_title('Returns by Holding Duration')
-            axes[1,1].set_ylabel('Total Return')
-            axes[1,1].tick_params(axis='x', rotation=45)
-            
-            # 添加数据标签
-            for i, v in enumerate(duration_returns['sum']):
-                if not pd.isna(v):
-                    axes[1,1].text(i, v, f'{v:.0f}', ha='center', va='bottom' if v >= 0 else 'top', fontsize=8)
-        else:
-            axes[1,1].text(0.5, 0.5, 'Duration data not available', 
-                          ha='center', va='center', transform=axes[1,1].transAxes)
-            axes[1,1].set_title('Holding Duration Analysis')
-        
-        # 6. 开平仓时机分析 (新增)
-        # 分析开仓和平仓时的市场表现
-        if 'CloseTime' in self.data.columns:
-            # 计算开仓到平仓的时间差对应的收益率
-            self.data['OpenWeekday'] = self.data['Time'].dt.day_name()
-            self.data['CloseWeekday'] = self.data['CloseTime'].dt.day_name()
-            
-            # 按开仓日期分组
-            weekday_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            weekday_performance = self.data.groupby('OpenWeekday')['Value'].agg(['sum', 'mean', 'count'])
-            weekday_performance = weekday_performance.reindex([day for day in weekday_order if day in weekday_performance.index])
-            
-            weekday_performance['mean'].plot(kind='bar', ax=axes[1,2], color='skyblue')
-            axes[1,2].set_title('Average Return by Opening Weekday')
-            axes[1,2].set_ylabel('Average Return')
-            axes[1,2].tick_params(axis='x', rotation=45)
-            
-            # 添加零线
-            axes[1,2].axhline(y=0, color='red', linestyle='--', alpha=0.5)
-            
-            # 添加数值标签
-            for i, v in enumerate(weekday_performance['mean']):
-                if not pd.isna(v):
-                    axes[1,2].text(i, v, f'{v:.0f}', ha='center', va='bottom' if v >= 0 else 'top', fontsize=8)
-        else:
-            # 备选：收益分布直方图
-            axes[1,2].hist(self.data['Value'], bins=50, alpha=0.7, color='purple', edgecolor='black')
-            axes[1,2].axvline(self.data['Value'].mean(), color='red', linestyle='--', 
-                             label=f'Average Return: {self.data["Value"].mean():.2f}')
-            axes[1,2].set_title('Return Distribution')
-            axes[1,2].set_xlabel('Single Trade Return')
-            axes[1,2].set_ylabel('Frequency')
-            axes[1,2].legend()
-        
-        plt.tight_layout()
-        return fig
-    
-    def plot_profit_source_analysis(self, figsize=(15, 10)):
-        """专门的利润来源分析图表"""
-        fig, axes = plt.subplots(2, 3, figsize=figsize)
-        fig.suptitle('Strategy Profit Source Deep Analysis', fontsize=18, fontweight='bold')
-        
-        # 1. 仓位大小利润分解
-        position_stats = self.data.groupby('PositionSize')['Value'].agg(['sum', 'mean', 'count', 'std']).round(2)
-        
-        # 双轴图：总收益 + 平均收益
-        ax1_1 = axes[0,0]
-        ax1_2 = ax1_1.twinx()
-        
-        bars1 = position_stats['sum'].plot(kind='bar', ax=ax1_1, color='lightcoral', alpha=0.7, width=0.4)
-        ax1_1.set_ylabel('Total Return', color='darkred')
-        ax1_1.tick_params(axis='y', labelcolor='darkred')
-        
-        bars2 = position_stats['mean'].plot(kind='bar', ax=ax1_2, color='lightblue', alpha=0.7, width=0.4, position=1)
-        ax1_2.set_ylabel('Average Return', color='darkblue')
-        ax1_2.tick_params(axis='y', labelcolor='darkblue')
-        
-        ax1_1.set_title('Profit Source: Position Size')
-        ax1_1.tick_params(axis='x', rotation=45)
-        ax1_1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        ax1_2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        
-        # 2. 持仓时间利润分解  
-        if 'Duration' in self.data.columns:
-            duration_bins = pd.cut(self.data['Duration'], bins=6, 
-                                 labels=['<6h', '6-12h', '12-24h', '1-3d', '3-7d', '>7d'])
-            duration_stats = self.data.groupby(duration_bins)['Value'].agg(['sum', 'mean', 'count']).round(2)
-            
-            duration_stats['sum'].plot(kind='bar', ax=axes[0,1], 
-                                     color=['lightgreen', 'green', 'orange', 'red', 'purple', 'brown'])
-            axes[0,1].set_title('Profit Source: Holding Duration')
-            axes[0,1].set_ylabel('Total Return')
-            axes[0,1].tick_params(axis='x', rotation=45)
-            axes[0,1].axhline(y=0, color='black', linestyle='-', alpha=0.3)
-            
-            # 添加交易数量标签
-            for i, (idx, row) in enumerate(duration_stats.iterrows()):
-                if not pd.isna(row['sum']):
-                    axes[0,1].text(i, row['sum'], f"n={row['count']:.0f}", 
-                                  ha='center', va='bottom' if row['sum'] >= 0 else 'top', fontsize=8)
-        
-        # 3. 交易对利润分解
-        symbol_stats = self.data.groupby('Symbol')['Value'].agg(['sum', 'mean', 'count']).round(2)
-        symbol_stats = symbol_stats.sort_values('sum', ascending=False)
-        
-        symbol_stats['sum'].plot(kind='bar', ax=axes[0,2], color='skyblue')
-        axes[0,2].set_title('Profit Source: Trading Pairs')
-        axes[0,2].set_ylabel('Total Return')
-        axes[0,2].tick_params(axis='x', rotation=45)
-        axes[0,2].axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        
-        # 添加胜率信息
-        for i, (symbol, row) in enumerate(symbol_stats.iterrows()):
-            symbol_data = self.data[self.data['Symbol'] == symbol]
-            win_rate = (symbol_data['Value'] > 0).mean() * 100
-            axes[0,2].text(i, row['sum'], f"{win_rate:.0f}%", 
-                          ha='center', va='bottom' if row['sum'] >= 0 else 'top', fontsize=8)
-        
-        # 4. 月度交易数量和收益分析（替换开仓时间段）
-        monthly_stats = self.data.groupby(self.data['Time'].dt.to_period('M'))['Value'].agg(['sum', 'mean', 'count']).round(2)
-        
-        # 创建双轴图显示交易数量和收益
-        ax4_1 = axes[1,0]
+        ax4_1 = axes[1,1]
         ax4_2 = ax4_1.twinx()
         
-        # 月度交易数量（左轴，柱状图）
-        monthly_stats['count'].plot(kind='bar', ax=ax4_1, color='lightblue', alpha=0.7, width=0.6)
-        ax4_1.set_ylabel('Number of Trades', color='blue')
-        ax4_1.tick_params(axis='y', labelcolor='blue')
+        symbol_df['Profit_Loss_Ratio'].plot(kind='bar', ax=ax4_1, color='lightseagreen', alpha=0.7)
+        ax4_1.set_ylabel('Profit/Loss Ratio', color='darkslategray')
+        ax4_1.tick_params(axis='y', labelcolor='darkslategray')
+        ax4_1.axhline(y=1, color='red', linestyle='--', alpha=0.7)
         
-        # 月度总收益（右轴，折线图）
-        monthly_stats['sum'].plot(kind='line', ax=ax4_2, color='red', marker='o', linewidth=2, markersize=6)
-        ax4_2.set_ylabel('Monthly Return', color='red')
-        ax4_2.tick_params(axis='y', labelcolor='red')
-        ax4_2.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+        symbol_df['Win_Rate'].plot(kind='line', ax=ax4_2, color='orange', marker='o', linewidth=2)
+        ax4_2.set_ylabel('Win Rate (%)', color='darkorange')
+        ax4_2.tick_params(axis='y', labelcolor='darkorange')
+        ax4_2.set_ylim(0, 100)
         
-        ax4_1.set_title('Profit Source: Monthly Activity & Returns')
+        ax4_1.set_title('P/L Ratio & Win Rate by Symbol', fontsize=14, fontweight='bold')
         ax4_1.tick_params(axis='x', rotation=45)
-        ax4_1.grid(True, alpha=0.3)
         
-        # 添加数值标签
-        for i, (period, row) in enumerate(monthly_stats.iterrows()):
-            # 交易数量标签
-            ax4_1.text(i, row['count'], f"{row['count']:.0f}", 
-                      ha='center', va='bottom', fontsize=8, color='blue')
-            # 收益标签
-            ax4_2.text(i, row['sum'], f"{row['sum']:.0f}", 
-                      ha='center', va='bottom' if row['sum'] >= 0 else 'top', fontsize=8, color='red')
+        # 5. 收益分布直方图
+        profit_data = self.data[self.data['Value'] > 0]['Value']
+        loss_data = self.data[self.data['Value'] < 0]['Value']
         
-        # 5. 月度平均收益趋势分析（替换开仓星期）
-        # 显示月度平均收益和波动性
-        monthly_avg_return = monthly_stats['mean']
-        monthly_volatility = self.data.groupby(self.data['Time'].dt.to_period('M'))['Value'].std().fillna(0)
+        axes[2,0].hist([profit_data, loss_data], bins=30, alpha=0.7, 
+                      color=['lightgreen', 'lightcoral'], label=['Profit', 'Loss'])
+        axes[2,0].set_title('Return Distribution', fontsize=14, fontweight='bold')
+        axes[2,0].set_xlabel('Return Amount')
+        axes[2,0].set_ylabel('Frequency')
+        axes[2,0].legend()
+        axes[2,0].axvline(x=0, color='black', linestyle='--', alpha=0.5)
         
-        # 创建双轴图
-        ax5_1 = axes[1,1]
-        ax5_2 = ax5_1.twinx()
+        # 6. 风险收益分析
+        position_risk_return = self.data.groupby('PositionSize')['Value'].agg(['mean', 'std']).fillna(0)
         
-        # 月度平均收益（左轴）
-        colors_monthly = ['gold' if x > 0 else 'lightcoral' for x in monthly_avg_return]
-        monthly_avg_return.plot(kind='bar', ax=ax5_1, color=colors_monthly, alpha=0.8)
-        ax5_1.set_ylabel('Average Return per Trade', color='darkgreen')
-        ax5_1.tick_params(axis='y', labelcolor='darkgreen')
-        ax5_1.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        colors = ['red', 'orange', 'green', 'blue', 'purple'][:len(position_risk_return)]
+        for i, (pos_size, row) in enumerate(position_risk_return.iterrows()):
+            axes[2,1].scatter(row['std'], row['mean'], s=150, color=colors[i], alpha=0.7, label=pos_size)
         
-        # 月度收益波动性（右轴）
-        monthly_volatility.plot(kind='line', ax=ax5_2, color='purple', marker='s', linewidth=2, markersize=4)
-        ax5_2.set_ylabel('Return Volatility', color='purple')
-        ax5_2.tick_params(axis='y', labelcolor='purple')
-        
-        ax5_1.set_title('Profit Source: Monthly Performance & Volatility')
-        ax5_1.tick_params(axis='x', rotation=45)
-        
-        # 添加数值标签
-        for i, (period, avg_ret) in enumerate(monthly_avg_return.items()):
-            ax5_1.text(i, avg_ret, f"{avg_ret:.0f}", 
-                      ha='center', va='bottom' if avg_ret >= 0 else 'top', fontsize=8, color='darkgreen')
-        
-        # 6. 综合利润贡献分析
-        # 计算各维度对总体利润的贡献
-        total_profit = self.data[self.data['Value'] > 0]['Value'].sum()
-        total_loss = abs(self.data[self.data['Value'] < 0]['Value'].sum())
-        
-        contribution_data = {
-            'Positive Positions': self.data[self.data['Value'] > 0].groupby('PositionSize')['Value'].sum(),
-            'Negative Positions': self.data[self.data['Value'] < 0].groupby('PositionSize')['Value'].sum()
-        }
-        
-        contribution_df = pd.DataFrame(contribution_data).fillna(0)
-        contribution_df.plot(kind='bar', ax=axes[1,2], color=['lightgreen', 'lightcoral'])
-        axes[1,2].set_title('Profit vs Loss by Position Size')
-        axes[1,2].set_ylabel('Return Amount')
-        axes[1,2].tick_params(axis='x', rotation=45)
-        axes[1,2].axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        axes[1,2].legend()
+        axes[2,1].set_xlabel('Risk (Return Std Dev)')
+        axes[2,1].set_ylabel('Expected Return')
+        axes[2,1].set_title('Risk-Return by Position Size', fontsize=14, fontweight='bold')
+        axes[2,1].legend()
+        axes[2,1].grid(True, alpha=0.3)
+        axes[2,1].axhline(y=0, color='red', linestyle='--', alpha=0.5)
+        axes[2,1].axvline(x=0, color='red', linestyle='--', alpha=0.5)
         
         plt.tight_layout()
         return fig
@@ -723,78 +701,44 @@ class OrderVisualizer:
         
         return fig
     
-    def plot_time_series_analysis(self, figsize=(16, 10)):
-        """时间序列分析图表"""
+    def plot_quick_overview(self, figsize=(12, 8)):
+        """快速概览图表"""
         fig, axes = plt.subplots(2, 2, figsize=figsize)
-        fig.suptitle('Time Series Analysis', fontsize=18, fontweight='bold')
+        fig.suptitle('Quick Strategy Overview', fontsize=16, fontweight='bold')
         
-        # 按时间排序数据
+        # 1. 累计收益
         data_sorted = self.data.sort_values('Time')
-        
-        # 1. 累计收益时间序列
         cumulative_pnl = data_sorted['Value'].cumsum()
         axes[0,0].plot(data_sorted['Time'], cumulative_pnl, linewidth=2, color='navy')
-        axes[0,0].set_title('Cumulative P&L Over Time')
+        axes[0,0].set_title('Cumulative Returns')
         axes[0,0].set_ylabel('Cumulative Return')
         axes[0,0].tick_params(axis='x', rotation=45)
         axes[0,0].grid(True, alpha=0.3)
         axes[0,0].axhline(y=0, color='red', linestyle='--', alpha=0.5)
         
-        # 2. 月度交易频率和收益
-        monthly_stats = data_sorted.groupby(data_sorted['Time'].dt.to_period('M'))['Value'].agg(['count', 'sum', 'mean'])
+        # 2. 仓位分布
+        position_counts = self.data['PositionSize'].value_counts()
+        colors = plt.cm.Set3(np.arange(len(position_counts)))
+        axes[0,1].pie(position_counts.values, labels=position_counts.index, autopct='%1.1f%%', colors=colors)
+        axes[0,1].set_title('Position Size Distribution')
         
-        # 双轴图
-        ax2_1 = axes[0,1]
-        ax2_2 = ax2_1.twinx()
-        
-        # 交易数量（左轴）
-        monthly_stats['count'].plot(kind='bar', ax=ax2_1, color='lightblue', alpha=0.7, width=0.6)
-        ax2_1.set_ylabel('Number of Trades', color='blue')
-        ax2_1.tick_params(axis='y', labelcolor='blue')
-        
-        # 月度总收益（右轴）
-        monthly_stats['sum'].plot(kind='line', ax=ax2_2, color='red', marker='o', linewidth=2)
-        ax2_2.set_ylabel('Monthly Return', color='red')
-        ax2_2.tick_params(axis='y', labelcolor='red')
-        ax2_2.axhline(y=0, color='red', linestyle='--', alpha=0.3)
-        
-        ax2_1.set_title('Monthly Trading Activity & Returns')
-        ax2_1.tick_params(axis='x', rotation=45)
-        
-        # 3. 每日交易模式分析
-        data_sorted['Date'] = data_sorted['Time'].dt.date
-        daily_stats = data_sorted.groupby('Date')['Value'].agg(['count', 'sum']).reset_index()
-        daily_stats['Date'] = pd.to_datetime(daily_stats['Date'])
-        
-        # 绘制每日交易数量
-        axes[1,0].scatter(daily_stats['Date'], daily_stats['count'], alpha=0.6, color='green')
-        axes[1,0].set_title('Daily Trading Frequency')
-        axes[1,0].set_ylabel('Trades per Day')
+        # 3. 月度表现
+        monthly_stats = data_sorted.groupby(data_sorted['Time'].dt.to_period('M'))['Value'].agg(['count', 'sum'])
+        monthly_stats['sum'].plot(kind='bar', ax=axes[1,0], color='lightblue')
+        axes[1,0].set_title('Monthly Returns')
+        axes[1,0].set_ylabel('Monthly Return')
         axes[1,0].tick_params(axis='x', rotation=45)
-        axes[1,0].grid(True, alpha=0.3)
+        axes[1,0].axhline(y=0, color='black', linestyle='-', alpha=0.3)
         
-        # 4. 收益波动性分析
-        # 计算滚动收益统计
-        data_sorted['CumReturn'] = data_sorted['Value'].cumsum()
-        
-        # 30日滚动标准差（如果有足够数据）
-        if len(data_sorted) > 30:
-            rolling_std = data_sorted['Value'].rolling(window=30, min_periods=10).std()
-            axes[1,1].plot(data_sorted['Time'], rolling_std, linewidth=2, color='orange')
-            axes[1,1].set_title('30-Trade Rolling Return Volatility')
-            axes[1,1].set_ylabel('Return Volatility')
-        else:
-            # 备选：收益分布直方图
-            axes[1,1].hist(self.data['Value'], bins=30, alpha=0.7, color='purple', edgecolor='black')
-            axes[1,1].axvline(self.data['Value'].mean(), color='red', linestyle='--', 
-                             label=f'Mean: {self.data["Value"].mean():.2f}')
-            axes[1,1].set_title('Return Distribution')
-            axes[1,1].set_xlabel('Single Trade Return')
-            axes[1,1].set_ylabel('Frequency')
-            axes[1,1].legend()
-        
-        axes[1,1].tick_params(axis='x', rotation=45)
-        axes[1,1].grid(True, alpha=0.3)
+        # 4. 收益分布
+        axes[1,1].hist(self.data['Value'], bins=30, alpha=0.7, color='purple', edgecolor='black')
+        axes[1,1].axvline(self.data['Value'].mean(), color='red', linestyle='--', 
+                         label=f'Mean: {self.data["Value"].mean():.2f}')
+        axes[1,1].set_title('Return Distribution')
+        axes[1,1].set_xlabel('Single Trade Return')
+        axes[1,1].set_ylabel('Frequency')
+        axes[1,1].legend()
+        axes[1,1].axvline(x=0, color='black', linestyle='--', alpha=0.5)
         
         plt.tight_layout()
         return fig
