@@ -24,9 +24,22 @@ class SymbolAnalysisVisualizer:
         self.df = analyzer.processed_data.copy()
         self.df['Time'] = pd.to_datetime(self.df['Time'])
 
+    def __init__(self, analyzer: OrderAnalyzer):
+        if analyzer.processed_data is None or analyzer.processed_data.empty:
+            raise ValueError("传入的分析器没有有效的已处理数据。")
+        self.analyzer = analyzer # 保存分析器实例
+        self.df = analyzer.processed_data.copy()
+        self.df['Time'] = pd.to_datetime(self.df['Time'])
+
     def _plot_profit_loss_by_position(self, ax):
-        """ 子图1: 按仓位划分的盈亏堆叠条形图 """
+        """ 子图1: 【V8.0】按仓位划分的盈亏堆叠条形图 & 仓位范围百分比标注 """
         df = self.df
+        baseline_value = 1_000_000.0
+        
+        # 从分析器获取仓位价值范围
+        position_analysis = self.analyzer.generate_position_analysis()
+        value_ranges = position_analysis.get('value_ranges')
+
         profit_by_pos = df[df['Value'] > 0].groupby(['Symbol', 'PositionSize'])['Value'].sum().unstack(fill_value=0)
         loss_by_pos = df[df['Value'] < 0].groupby(['Symbol', 'PositionSize'])['Value'].sum().unstack(fill_value=0)
         
@@ -38,19 +51,56 @@ class SymbolAnalysisVisualizer:
         bar_width = 0.4
         index = np.arange(len(all_symbols))
 
+        # --- 绘制盈利条 ---
         bottom_profit = np.zeros(len(all_symbols))
         greens = plt.get_cmap('Greens')
         for i, size in enumerate(profit_by_pos.columns):
             values = profit_by_pos[size]
-            ax.bar(index - bar_width/2, values, bar_width, bottom=bottom_profit, label=f'Win-{size}', color=greens(0.6 + i*0.1))
+            # 创建带范围百分比的图例标签
+            range_label = ""
+            if value_ranges is not None and size in value_ranges.index:
+                min_percent = (value_ranges.loc[size, 'min'] / baseline_value) * 100
+                max_percent = (value_ranges.loc[size, 'max'] / baseline_value) * 100
+                range_label = f" ({min_percent:.1f}%-{max_percent:.1f}%)"
+
+            ax.bar(index - bar_width/2, values, bar_width, bottom=bottom_profit, label=f'Win-{size}{range_label}', color=greens(0.6 + i*0.1))
+            for j, value in enumerate(values):
+                if value > 0:
+                    total_profit = profit_by_pos.iloc[j].sum()
+                    percentage = value / total_profit * 100 if total_profit > 0 else 0
+                    ax.text(j - bar_width/2, bottom_profit[j] + value / 2, f'{percentage:.0f}%', ha='center', va='center', color='black', fontsize=8)
             bottom_profit += values
 
+        # --- 绘制亏损条 ---
         bottom_loss = np.zeros(len(all_symbols))
         reds = plt.get_cmap('Reds')
         for i, size in enumerate(loss_by_pos.columns):
             values = loss_by_pos[size]
-            ax.bar(index + bar_width/2, values, bar_width, bottom=bottom_loss, label=f'Loss-{size}', color=reds(0.6 + i*0.1))
+            # 创建带范围百分比的图例标签
+            range_label = ""
+            if value_ranges is not None and size in value_ranges.index:
+                min_percent = (value_ranges.loc[size, 'min'] / baseline_value) * 100
+                max_percent = (value_ranges.loc[size, 'max'] / baseline_value) * 100
+                range_label = f" ({min_percent:.1f}%-{max_percent:.1f}%)"
+            
+            ax.bar(index + bar_width/2, values, bar_width, bottom=bottom_loss, label=f'Loss-{size}{range_label}', color=reds(0.6 + i*0.1))
+            for j, value in enumerate(values):
+                if value < 0:
+                    total_loss = loss_by_pos.iloc[j].sum()
+                    percentage = value / total_loss * 100 if total_loss < 0 else 0
+                    ax.text(j + bar_width/2, bottom_loss[j] + value / 2, f'{percentage:.0f}%', ha='center', va='center', color='black', fontsize=8)
             bottom_loss += values
+            
+        # --- 恢复并标注平均盈亏比 ---
+        avg_win = df[df['Value'] > 0].groupby('Symbol')['Value'].mean()
+        avg_loss = abs(df[df['Value'] < 0].groupby('Symbol')['Value'].mean())
+        avg_ratio = (avg_win / avg_loss).fillna(0)
+
+        for i, symbol in enumerate(all_symbols):
+            total_profit = profit_by_pos.loc[symbol].sum()
+            ratio = avg_ratio.get(symbol, 0)
+            if total_profit > 0: # 只在有盈利的柱子上标注
+                ax.text(i - bar_width/2, total_profit, f' {ratio:.1f}:1', ha='center', va='bottom', color='blue', fontsize=9, weight='bold')
 
         ax.set_title('1. Profit/Loss Breakdown by Position Size')
         ax.set_ylabel('Amount')
