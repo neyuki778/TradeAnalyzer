@@ -8,7 +8,7 @@ import os
 import glob
 
 # 添加订单分析目录到路径
-orders_analysis_dir = "/Users/yukiarima/Desktop/Quant/QuantFramework/orders-analysis"
+orders_analysis_dir = os.path.abspath(os.path.join(os.getcwd()))
 if orders_analysis_dir not in sys.path:
     sys.path.append(orders_analysis_dir)
 

@@ -6,6 +6,7 @@
 import matplotlib.pyplot as plt
 from order_analyzer import OrderAnalyzer
 from order_visualizer_charts import OrderVisualizer
+import os
 
 def analyze_strategy_orders(csv_file_path, save_plots=False, show_plots=True, strategy_name="Strategy"):
     """
@@ -193,9 +194,10 @@ def create_dashboard_analysis(csv_file_path, save_plot=False, strategy_name="Str
         return None, None, None
 
 if __name__ == "__main__":
+    root_dir = os.path.abspath(os.path.join(os.getcwd()))
     # 示例用法
-    csv_file = "/Users/yukiarima/Desktop/Quant/QuantFramework/orders-analysis/MACD-long-crypto/MACD-long-crypto-2023-2024.csv"
-    
+    csv_file = os.path.join(root_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024.csv")
+
     # 标准分析
     analyzer, visualizer = analyze_strategy_orders(csv_file, save_plots=False, strategy_name="MACD Long Crypto")
     

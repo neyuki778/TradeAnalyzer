@@ -7,7 +7,9 @@ import sys
 import os
 
 # 添加订单分析目录到路径
-orders_analysis_dir = "/Users/yukiarima/Desktop/Quant/QuantFramework/orders-analysis"
+project_root = os.path.abspath(os.path.join(os.getcwd()))
+# print(f"项目根目录: {project_root}")
+orders_analysis_dir = os.path.join(project_root)
 if orders_analysis_dir not in sys.path:
     sys.path.append(orders_analysis_dir)
 
@@ -20,15 +22,18 @@ def main():
     print("=" * 60)
     
     # 订单数据文件路径
-    csv_file = "/Users/yukiarima/Desktop/Quant/QuantFramework/orders-analysis/MACD-long-crypto/MACD-long-crypto-2023-2024.csv"
-    
+    csv_file = os.path.join(orders_analysis_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024.csv")
+
     # 检查文件是否存在
     if not os.path.exists(csv_file):
         print(f"错误: 订单数据文件不存在: {csv_file}")
         return
     
     # 切换到订单分析目录，保存图表到此目录
-    os.chdir("/Users/yukiarima/Desktop/Quant/QuantFramework/orders-analysis/MACD-long-crypto")
+    save_image_path = os.path.join(orders_analysis_dir, "MACD-long-crypto")
+    if not os.path.exists(save_image_path):
+        os.makedirs(save_image_path)
+    os.chdir(save_image_path)
     
     # 询问分析类型
     print("\n📊 选择分析类型:")
