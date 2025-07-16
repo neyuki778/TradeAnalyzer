@@ -276,22 +276,28 @@ class OrderVisualizer:
         
         # 2. 持仓时间利润分解
         if 'Duration' in self.data.columns:
-            duration_bins = pd.cut(self.data['Duration'], bins=6, 
+            # 创建持仓时间的分箱
+            duration_bins = pd.cut(self.data['Duration'], bins=6,
                                  labels=['<6h', '6-12h', '12-24h', '1-3d', '3-7d', '>7d'])
-            duration_stats = self.data.groupby(duration_bins)['Value'].agg(['sum', 'mean', 'count']).round(2)
             
-            duration_stats['sum'].plot(kind='bar', ax=axes[0,1], 
-                                     color=['lightgreen', 'green', 'orange', 'red', 'purple', 'brown'])
-            axes[0,1].set_title('Profit by Holding Duration', fontsize=14, fontweight='bold')
+            # 分别计算盈利、亏损和总和
+            profit_by_duration = self.data[self.data['Value'] > 0].groupby(duration_bins)['Value'].sum()
+            loss_by_duration = self.data[self.data['Value'] < 0].groupby(duration_bins)['Value'].sum()
+            net_by_duration = self.data.groupby(duration_bins)['Value'].sum()
+
+            # 组合成一个DataFrame并绘图
+            duration_df = pd.DataFrame({
+                'Profit': profit_by_duration,
+                'Loss': loss_by_duration,
+                'Net': net_by_duration
+            }).fillna(0)
+            
+            duration_df.plot(kind='bar', ax=axes[0,1], color={'Profit': 'g', 'Loss': 'r', 'Net': 'b'}, alpha=0.7)
+            axes[0,1].set_title('Profit/Loss by Holding Duration', fontsize=14, fontweight='bold')
             axes[0,1].set_ylabel('Total Return')
             axes[0,1].tick_params(axis='x', rotation=45)
             axes[0,1].axhline(y=0, color='black', linestyle='-', alpha=0.3)
-            
-            # 添加数值标签
-            for i, (dur, row) in enumerate(duration_stats.iterrows()):
-                if not pd.isna(row['sum']):
-                    axes[0,1].text(i, row['sum'], f'{row["sum"]:.0f}\n({row["count"]})', 
-                                  ha='center', va='bottom' if row['sum'] >= 0 else 'top', fontsize=10)
+            axes[0,1].legend()
         else:
             axes[0,1].text(0.5, 0.5, 'Duration data not available', 
                           ha='center', va='center', transform=axes[0,1].transAxes)

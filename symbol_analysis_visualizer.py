@@ -54,6 +54,8 @@ class SymbolAnalysisVisualizer:
         # --- 绘制盈利条 ---
         bottom_profit = np.zeros(len(all_symbols))
         greens = plt.get_cmap('Greens')
+        # 计算颜色强度：仓位从大到小颜色依次变深
+        num_sizes = len(profit_by_pos.columns)
         for i, size in enumerate(profit_by_pos.columns):
             values = profit_by_pos[size]
             # 创建带范围百分比的图例标签
@@ -63,7 +65,9 @@ class SymbolAnalysisVisualizer:
                 max_percent = (value_ranges.loc[size, 'max'] / baseline_value) * 100
                 range_label = f" ({min_percent:.1f}%-{max_percent:.1f}%)"
 
-            ax.bar(index - bar_width/2, values, bar_width, bottom=bottom_profit, label=f'Win-{size}{range_label}', color=greens(0.6 + i*0.1))
+            # 仓位从大到小颜色依次变深：大仓位用深绿色，小仓位用浅绿色
+            color_intensity = 0.9 - (i * 0.3 / max(1, num_sizes - 1))  # 从0.9到0.6
+            ax.bar(index - bar_width/2, values, bar_width, bottom=bottom_profit, label=f'Win-{size}{range_label}', color=greens(color_intensity))
             for j, value in enumerate(values):
                 if value > 0:
                     total_profit = profit_by_pos.iloc[j].sum()
@@ -74,6 +78,7 @@ class SymbolAnalysisVisualizer:
         # --- 绘制亏损条 ---
         bottom_loss = np.zeros(len(all_symbols))
         reds = plt.get_cmap('Reds')
+        num_sizes = len(loss_by_pos.columns)
         for i, size in enumerate(loss_by_pos.columns):
             values = loss_by_pos[size]
             # 创建带范围百分比的图例标签
@@ -83,7 +88,9 @@ class SymbolAnalysisVisualizer:
                 max_percent = (value_ranges.loc[size, 'max'] / baseline_value) * 100
                 range_label = f" ({min_percent:.1f}%-{max_percent:.1f}%)"
             
-            ax.bar(index + bar_width/2, values, bar_width, bottom=bottom_loss, label=f'Loss-{size}{range_label}', color=reds(0.6 + i*0.1))
+            # 仓位从大到小颜色依次变深：大仓位用深红色，小仓位用浅红色
+            color_intensity = 0.9 - (i * 0.3 / max(1, num_sizes - 1))  # 从0.9到0.6
+            ax.bar(index + bar_width/2, values, bar_width, bottom=bottom_loss, label=f'Loss-{size}{range_label}', color=reds(color_intensity))
             for j, value in enumerate(values):
                 if value < 0:
                     total_loss = loss_by_pos.iloc[j].sum()
@@ -234,7 +241,7 @@ class SymbolAnalysisVisualizer:
 if __name__ == '__main__':
     # --- 配置 ---
     root_dir = os.path.abspath(os.path.join(os.getcwd()))
-    csv_file = os.path.join(root_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024-v2.csv")
+    csv_file = os.path.join(root_dir, "MACD-long-crypto/2023-2024/less-pos.csv")
     strategy_name = "MACD Long Crypto"
     
     try:

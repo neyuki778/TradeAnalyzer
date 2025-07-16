@@ -187,7 +187,7 @@ def create_dashboard_analysis(csv_file_path, save_plot=False, strategy_name="Str
 if __name__ == "__main__":
     root_dir = os.path.abspath(os.path.join(os.getcwd()))
     # 示例用法
-    csv_file = os.path.join(root_dir, "MACD-long-crypto/MACD-long-crypto-2023-2024-v2.csv")
+    csv_file = os.path.join(root_dir, "MACD-long-crypto/2023-2024/biger-pos.csv")
 
     # 标准分析
     # 询问用户是否保存图表
