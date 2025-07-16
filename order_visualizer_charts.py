@@ -10,9 +10,6 @@ import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
 
-# 设置中文字体支持 (macOS)
-plt.rcParams['font.sans-serif'] = ['Helvetica', 'Arial Unicode MS', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
 
 class OrderVisualizer:
     """订单可视化器 - 专门处理数据可视化和图表生成"""
@@ -237,20 +234,73 @@ class OrderVisualizer:
         axes[1,1].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         axes[1,1].tick_params(axis='x', rotation=45)
         
-        # 5. 收益分布箱线图
-        sns.boxplot(data=self.data, x='PositionSize', y='Value', ax=axes[2,0], palette='Set3')
-        axes[2,0].set_title('Return Distribution by Position Size')
-        axes[2,0].set_ylabel('Return')
-        axes[2,0].tick_params(axis='x', rotation=45)
+        # 5. Large 仓位详细信息
+        axes[2,0].axis('off')
+        if 'Large' in self.data['PositionSize'].values:
+            large_data = self.data[self.data['PositionSize'] == 'Large']
+            large_symbols = large_data['Symbol'].value_counts()
+            large_profit_total = large_data['Value'].sum()
+            large_profit_positive = large_data[large_data['Value'] > 0]['Value'].sum()
+            large_profit_negative = large_data[large_data['Value'] < 0]['Value'].sum()
+            large_avg_value = large_data['AbsValue'].mean()
+            large_value_range = f"{large_data['AbsValue'].min():,.0f} - {large_data['AbsValue'].max():,.0f}"
+            
+            large_info = f"""Large Position Analysis
+            
+Info:
+• Datas: {len(large_data)}
+• Main trading pair: {dict(large_symbols.head(3))}
+• Average size: {large_avg_value:,.0f}
+• Position size: {large_value_range}
+
+Profit:
+• Total: {large_profit_total:,.0f}
+• Winning trades: {large_profit_positive:,.0f}
+• Losing trades: {large_profit_negative:,.0f}
+• Winning trade count: {len(large_data[large_data['Value'] > 0])}
+• Losing trade count: {len(large_data[large_data['Value'] < 0])}"""
+
+            axes[2,0].text(0.05, 0.95, large_info, transform=axes[2,0].transAxes, 
+                          fontsize=10, verticalalignment='top', fontfamily='monospace',
+                          bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+        else:
+            axes[2,0].text(0.5, 0.5, 'No Large Position Data', transform=axes[2,0].transAxes,
+                          ha='center', va='center', fontsize=14)
+        axes[2,0].set_title('Large Position Details')
         
-        # 6. 仓位价值分布
-        sns.boxplot(data=self.data, x='PositionSize', y='AbsValue', ax=axes[2,1], palette='Set3')
-        axes[2,1].set_title('Position Value Distribution')
-        axes[2,1].set_ylabel('Position Value')
-        axes[2,1].tick_params(axis='x', rotation=45)
-        
-        # 应用智能坐标轴
-        self._apply_smart_scale(axes[2,1], self.data['AbsValue'], axis='y')
+        # 6. XLarge 仓位详细信息
+        axes[2,1].axis('off')
+        if 'XLarge' in self.data['PositionSize'].values:
+            xlarge_data = self.data[self.data['PositionSize'] == 'XLarge']
+            xlarge_symbols = xlarge_data['Symbol'].value_counts()
+            xlarge_profit_total = xlarge_data['Value'].sum()
+            xlarge_profit_positive = xlarge_data[xlarge_data['Value'] > 0]['Value'].sum()
+            xlarge_profit_negative = xlarge_data[xlarge_data['Value'] < 0]['Value'].sum()
+            xlarge_avg_value = xlarge_data['AbsValue'].mean()
+            xlarge_value_range = f"{xlarge_data['AbsValue'].min():,.0f} - {xlarge_data['AbsValue'].max():,.0f}"
+            
+            xlarge_info = f"""XLarge Position Analysis
+            
+Info:
+• Datas: {len(xlarge_data)}
+• Main trading pair: {dict(xlarge_symbols.head(3))}
+• Average size: {xlarge_avg_value:,.0f}
+• Position size: {xlarge_value_range}
+
+Profit:
+• Total: {xlarge_profit_total:,.0f}
+• Winning trades: {xlarge_profit_positive:,.0f}
+• Losing trades: {xlarge_profit_negative:,.0f}
+• Winning trade count: {len(xlarge_data[xlarge_data['Value'] > 0])}
+• Losing trade count: {len(xlarge_data[xlarge_data['Value'] < 0])}"""
+
+            axes[2,1].text(0.05, 0.95, xlarge_info, transform=axes[2,1].transAxes, 
+                          fontsize=10, verticalalignment='top', fontfamily='monospace',
+                          bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
+        else:
+            axes[2,1].text(0.5, 0.5, 'No XLarge Position Data', transform=axes[2,1].transAxes,
+                          ha='center', va='center', fontsize=14)
+        axes[2,1].set_title('XLarge Position Details')
         
         plt.tight_layout()
     
