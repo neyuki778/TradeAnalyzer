@@ -18,6 +18,8 @@ warnings.filterwarnings('ignore')
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
+DEFAULT_CASH = 1_000_000.0
+
 class PositionSizeDetailVisualizer:
     """
     仓位大小细分可视化器
@@ -62,7 +64,7 @@ class PositionSizeDetailVisualizer:
         log_bins = np.linspace(log_values.min(), log_values.max(), n_bins + 1)
         
         # 转换回原始值
-        bins = 10 ** log_bins - 1
+        bins = 10 ** log_bins - 1       
         
         # 创建区间标签
         labels = []
@@ -85,11 +87,11 @@ class PositionSizeDetailVisualizer:
         
         return {
             'bins': bins,
-            'labels': labels,
+            'labels': labels ,
             'n_bins': n_bins
         }
     
-    def plot_position_size_detail(self, figsize=(20, 12), n_bins=12):
+    def plot_position_size_detail(self, figsize=(20, 16), n_bins=12):
         """
         绘制仓位大小细分图表
         
@@ -113,12 +115,14 @@ class PositionSizeDetailVisualizer:
         profit_data = data_with_bins[data_with_bins['Value'] > 0]
         loss_data = data_with_bins[data_with_bins['Value'] < 0]
         
-        # 创建图表
-        fig, axes = plt.subplots(2, 2, figsize=figsize)
+        # 创建图表 - 改为3个子图布局
+        fig = plt.figure(figsize=figsize)
+        gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 2], hspace=0.3, wspace=0.3)
+        
         fig.suptitle('Position Size Detail Analysis', fontsize=20, fontweight='bold')
         
-        # === 子图1: 总体盈亏分布 ===
-        ax1 = axes[0, 0]
+        # === 子图1: 总体盈亏分布 + 盈亏比 ===
+        ax1 = fig.add_subplot(gs[0, 0])
         
         # 按区间统计盈亏
         profit_by_bin = profit_data.groupby('PositionBin')['Value'].sum()
@@ -132,12 +136,12 @@ class PositionSizeDetailVisualizer:
         x_pos = np.arange(len(all_bins))
         
         # 绘制盈利条形图（向上）
-        bars1 = ax1.bar(x_pos, profit_by_bin.values, 
-                       color='lightgreen', alpha=0.8, label='Profit')
+        ax1.bar(x_pos, profit_by_bin.values, 
+                color='lightgreen', alpha=0.8, label='Profit')
         
         # 绘制亏损条形图（向下）
-        bars2 = ax1.bar(x_pos, loss_by_bin.values, 
-                       color='lightcoral', alpha=0.8, label='Loss')
+        ax1.bar(x_pos, loss_by_bin.values, 
+                color='lightcoral', alpha=0.8, label='Loss')
         
         ax1.set_title('Total P&L by Position Size', fontsize=14, fontweight='bold')
         ax1.set_xlabel('Position Size Range')
@@ -148,48 +152,102 @@ class PositionSizeDetailVisualizer:
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        # 添加数值标签
+        # 添加数值标签和盈亏比
         for i, (profit, loss) in enumerate(zip(profit_by_bin.values, loss_by_bin.values)):
             if profit > 0:
                 ax1.text(i, profit, f'{profit:,.0f}', ha='center', va='bottom', fontsize=8)
             if loss < 0:
                 ax1.text(i, loss, f'{loss:,.0f}', ha='center', va='top', fontsize=8)
+                
+            # 计算并显示盈亏比
+            if profit > 0 and loss < 0:
+                ratio = abs(profit / loss)
+                ax1.text(i, max(profit, abs(loss)) * 1.1, f'{ratio:.1f}:1', 
+                        ha='center', va='bottom', fontsize=8, color='blue', fontweight='bold')
         
-        # === 子图2: 交易次数分布 ===
-        ax2 = axes[0, 1]
+        # === 子图2: 综合统计 - 订单数、胜率和盈亏比 ===
+        ax2 = fig.add_subplot(gs[0, 1])
         
-        # 按区间统计交易次数
-        profit_count = profit_data.groupby('PositionBin').size()
-        loss_count = loss_data.groupby('PositionBin').size()
+        # 按区间统计各种指标
+        combined_stats = []
+        for bin_label in all_bins:
+            bin_data = data_with_bins[data_with_bins['PositionBin'] == bin_label]
+            if len(bin_data) == 0:
+                combined_stats.append({
+                    'bin': bin_label,
+                    'total_trades': 0,
+                    'win_rate': 0,
+                    'profit_loss_ratio': 0
+                })
+                continue
+                
+            profit_trades = bin_data[bin_data['Value'] > 0]
+            loss_trades = bin_data[bin_data['Value'] < 0]
+            
+            total_trades = len(bin_data)
+            win_rate = len(profit_trades) / total_trades * 100 if total_trades > 0 else 0
+            
+            # 计算盈亏比
+            avg_profit = profit_trades['Value'].mean() if len(profit_trades) > 0 else 0
+            avg_loss = abs(loss_trades['Value'].mean()) if len(loss_trades) > 0 else 1
+            profit_loss_ratio = avg_profit / avg_loss if avg_loss > 0 else 0
+            
+            combined_stats.append({
+                'bin': bin_label,
+                'total_trades': total_trades,
+                'win_rate': win_rate,
+                'profit_loss_ratio': profit_loss_ratio
+            })
         
-        # 确保所有区间都有数据
-        profit_count = profit_count.reindex(all_bins, fill_value=0)
-        loss_count = loss_count.reindex(all_bins, fill_value=0)
+        # 绘制三个指标
+        x_pos = np.arange(len(all_bins))
         
-        # 绘制交易次数分布
-        bars3 = ax2.bar(x_pos, profit_count.values, 
-                       color='darkgreen', alpha=0.8, label='Profit Trades')
-        bars4 = ax2.bar(x_pos, -loss_count.values, 
-                       color='darkred', alpha=0.8, label='Loss Trades')
+        # 主轴：交易数量
+        ax2_1 = ax2
+        trade_counts = [stat['total_trades'] for stat in combined_stats]
+        bars_trades = ax2_1.bar(x_pos, trade_counts, alpha=0.6, color='lightblue', label='Trade Count')
+        ax2_1.set_ylabel('Trade Count', color='blue')
+        ax2_1.tick_params(axis='y', labelcolor='blue')
         
-        ax2.set_title('Trade Count by Position Size', fontsize=14, fontweight='bold')
-        ax2.set_xlabel('Position Size Range')
-        ax2.set_ylabel('Trade Count')
-        ax2.set_xticks(x_pos)
-        ax2.set_xticklabels(all_bins, rotation=45, ha='right')
-        ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
+        # 右轴1：胜率
+        ax2_2 = ax2_1.twinx()
+        win_rates = [stat['win_rate'] for stat in combined_stats]
+        line_winrate = ax2_2.plot(x_pos, win_rates, color='green', marker='o', linewidth=2, 
+                                  markersize=4, label='Win Rate')
+        ax2_2.set_ylabel('Win Rate (%)', color='green')
+        ax2_2.tick_params(axis='y', labelcolor='green')
+        ax2_2.set_ylim(0, 100)
+        
+        # 右轴2：盈亏比
+        ax2_3 = ax2_1.twinx()
+        ax2_3.spines['right'].set_position(('outward', 60))
+        profit_loss_ratios = [stat['profit_loss_ratio'] for stat in combined_stats]
+        line_ratio = ax2_3.plot(x_pos, profit_loss_ratios, color='red', marker='s', linewidth=2, 
+                                markersize=4, label='P/L Ratio')
+        ax2_3.set_ylabel('Profit/Loss Ratio', color='red')
+        ax2_3.tick_params(axis='y', labelcolor='red')
+        ax2_3.axhline(y=1, color='red', linestyle='--', alpha=0.5)
+        
+        ax2_1.set_title('Trade Stats: Count, Win Rate & P/L Ratio', fontsize=14, fontweight='bold')
+        ax2_1.set_xlabel('Position Size Range')
+        ax2_1.set_xticks(x_pos)
+        ax2_1.set_xticklabels(all_bins, rotation=45, ha='right')
+        ax2_1.grid(True, alpha=0.3)
         
         # 添加数值标签
-        for i, (profit_cnt, loss_cnt) in enumerate(zip(profit_count.values, loss_count.values)):
-            if profit_cnt > 0:
-                ax2.text(i, profit_cnt, f'{profit_cnt}', ha='center', va='bottom', fontsize=8)
-            if loss_cnt > 0:
-                ax2.text(i, -loss_cnt, f'{loss_cnt}', ha='center', va='top', fontsize=8)
+        for i, stat in enumerate(combined_stats):
+            if stat['total_trades'] > 0:
+                ax2_1.text(i, stat['total_trades'], f"{stat['total_trades']}", 
+                          ha='center', va='bottom', fontsize=8)
+            if stat['win_rate'] > 0:
+                ax2_2.text(i, stat['win_rate'], f"{stat['win_rate']:.0f}%", 
+                          ha='center', va='bottom', fontsize=8, color='green')
+            if stat['profit_loss_ratio'] > 0:
+                ax2_3.text(i, stat['profit_loss_ratio'], f"{stat['profit_loss_ratio']:.1f}", 
+                          ha='center', va='bottom', fontsize=8, color='red')
         
-        # === 子图3: 多交易对分析 ===
-        ax3 = axes[1, 0]
+        # === 子图3: 多交易对分析 - 占据整个下半部分 ===
+        ax3 = fig.add_subplot(gs[1:, :])
         
         # 按交易对和区间统计盈亏
         symbol_profit = profit_data.groupby(['Symbol', 'PositionBin'])['Value'].sum().unstack(fill_value=0)
@@ -206,60 +264,26 @@ class PositionSizeDetailVisualizer:
         im = ax3.imshow(symbol_net.values, cmap='RdYlGn', aspect='auto')
         
         # 设置标签
-        ax3.set_title('Net P&L Heatmap by Symbol & Position Size', fontsize=14, fontweight='bold')
-        ax3.set_xlabel('Position Size Range')
-        ax3.set_ylabel('Trading Symbol')
+        ax3.set_title('Net P&L Heatmap by Symbol & Position Size', fontsize=16, fontweight='bold')
+        ax3.set_xlabel('Position Size Range', fontsize=12)
+        ax3.set_ylabel('Trading Symbol', fontsize=12)
         ax3.set_xticks(range(len(all_bins)))
         ax3.set_xticklabels(all_bins, rotation=45, ha='right')
         ax3.set_yticks(range(len(symbol_net.index)))
         ax3.set_yticklabels(symbol_net.index)
         
         # 添加颜色条
-        cbar = plt.colorbar(im, ax=ax3)
+        cbar = plt.colorbar(im, ax=ax3, shrink=0.8)
         cbar.set_label('Net P&L', rotation=270, labelpad=15)
         
-        # 在每个格子中添加数值
+        # 在每个格子中添加数值 - 使用黑色字体
         for i in range(len(symbol_net.index)):
             for j in range(len(all_bins)):
                 value = symbol_net.iloc[i, j]
                 if abs(value) > 0:
                     ax3.text(j, i, f'{value:,.0f}', ha='center', va='center', 
-                            fontsize=8, color='white' if abs(value) > symbol_net.values.std() else 'black')
+                            fontsize=10, color='black', fontweight='bold')
         
-        # === 子图4: 平均盈亏分析 ===
-        ax4 = axes[1, 1]
-        
-        # 计算平均盈亏
-        avg_profit = profit_data.groupby('PositionBin')['Value'].mean()
-        avg_loss = loss_data.groupby('PositionBin')['Value'].mean()
-        
-        # 确保所有区间都有数据
-        avg_profit = avg_profit.reindex(all_bins, fill_value=0)
-        avg_loss = avg_loss.reindex(all_bins, fill_value=0)
-        
-        # 绘制平均盈亏
-        bars5 = ax4.bar(x_pos, avg_profit.values, 
-                       color='lightblue', alpha=0.8, label='Avg Profit')
-        bars6 = ax4.bar(x_pos, avg_loss.values, 
-                       color='salmon', alpha=0.8, label='Avg Loss')
-        
-        ax4.set_title('Average P&L by Position Size', fontsize=14, fontweight='bold')
-        ax4.set_xlabel('Position Size Range')
-        ax4.set_ylabel('Average P&L')
-        ax4.set_xticks(x_pos)
-        ax4.set_xticklabels(all_bins, rotation=45, ha='right')
-        ax4.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        ax4.legend()
-        ax4.grid(True, alpha=0.3)
-        
-        # 添加数值标签
-        for i, (avg_p, avg_l) in enumerate(zip(avg_profit.values, avg_loss.values)):
-            if avg_p > 0:
-                ax4.text(i, avg_p, f'{avg_p:,.0f}', ha='center', va='bottom', fontsize=8)
-            if avg_l < 0:
-                ax4.text(i, avg_l, f'{avg_l:,.0f}', ha='center', va='top', fontsize=8)
-        
-        plt.tight_layout()
         return fig
     
     def plot_simplified_view(self, figsize=(16, 8), n_bins=15):
@@ -426,7 +450,7 @@ def main():
     
     # 数据文件路径
     root_dir = os.path.abspath(os.path.join(os.getcwd()))
-    csv_file = os.path.join(root_dir, "MACD-long-crypto/2023-2024/filter.csv")
+    csv_file = os.path.join(root_dir, "MACD-long-crypto/2023-2024/HOUR/base.csv")
     
     try:
         # 创建分析器
