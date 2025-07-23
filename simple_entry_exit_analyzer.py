@@ -294,13 +294,39 @@ class SimpleEntryExitAnalyzer:
             print("⚠️  指定时间段内没有市场数据")
             return None
         
-        # 绘制价格线（简化的K线图）
-        ax1.plot(market_data.index, market_data['close'], 
-                label=f'{symbol} 收盘价', linewidth=1, color='#1f77b4', alpha=0.8)
+        # 绘制K线图（蜡烛图）
+        from matplotlib.patches import Rectangle
         
-        # 添加高低价阴影
-        ax1.fill_between(market_data.index, market_data['low'], market_data['high'], 
-                        alpha=0.1, color='gray', label='高低价区间')
+        # 计算K线宽度（根据时间周期动态调整）
+        if timeframe == '1d':
+            width = 0.6  # 日线K线宽度
+        elif timeframe == '1h':
+            width = 0.02  # 小时线K线宽度
+        else:  # 15m
+            width = 0.008  # 15分钟线K线宽度
+        
+        # 绘制每根K线
+        for idx, row in market_data.iterrows():
+            open_price = row['open']
+            close_price = row['close'] 
+            high_price = row['high']
+            low_price = row['low']
+            
+            # 判断涨跌
+            color = 'red' if close_price >= open_price else 'green'  # 中国习惯：红涨绿跌
+            
+            # 绘制上下影线
+            ax1.plot([idx, idx], [low_price, high_price], color='black', linewidth=0.8, alpha=0.7)
+            
+            # 绘制实体K线
+            height = abs(close_price - open_price)
+            bottom = min(open_price, close_price)
+            
+            # 使用Rectangle绘制K线实体
+            x_pos = mdates.date2num(idx)
+            rect = Rectangle((x_pos - width/2, bottom), width, height,
+                           facecolor=color, edgecolor='black', alpha=0.8, linewidth=0.5)
+            ax1.add_patch(rect)
         
         # 标注买卖点
         for _, trade in trades.iterrows():
