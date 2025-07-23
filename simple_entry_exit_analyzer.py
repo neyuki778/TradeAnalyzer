@@ -71,41 +71,59 @@ class SimpleEntryExitAnalyzer:
         if symbol_trades.empty:
             return '1d'
         
-        # 分析交易时间跨度
+        # 分析交易频率和密度
         time_span = symbol_trades['Time'].max() - symbol_trades['Time'].min()
         total_days = time_span.days
+        total_trades = len(symbol_trades)
+        
+        # 计算交易密度（每天平均交易次数）
+        trades_per_day = total_trades / max(total_days, 1)
         
         # 分析平均持仓时长
         if 'Duration' in symbol_trades.columns:
             avg_duration_hours = symbol_trades['Duration'].mean()
         else:
-            # 如果没有Duration列，用相邻交易的时间差估算
-            avg_duration_hours = 24  # 默认1天
+            # 如果没有Duration列，分析交易时间间隔
+            time_diffs = symbol_trades['Time'].diff().dropna()
+            if len(time_diffs) > 0:
+                avg_interval_hours = time_diffs.mean().total_seconds() / 3600
+                avg_duration_hours = avg_interval_hours
+            else:
+                avg_duration_hours = 24  # 默认1天
+        
+        # 检查数据来源文件名，判断原始策略周期
+        source_hint = None
+        if hasattr(self, 'csv_path'):
+            if 'HOUR' in self.csv_path.upper() or '1H' in self.csv_path.upper():
+                source_hint = '1h'
+            elif 'DAILY' in self.csv_path.upper() or '1D' in self.csv_path.upper():
+                source_hint = '1d' 
+            elif '15M' in self.csv_path.upper() or 'MIN' in self.csv_path.upper():
+                source_hint = '15m'
         
         print(f"📅 {symbol} 交易时间跨度: {total_days} 天")
+        print(f"📊 交易总数: {total_trades} 笔")
+        print(f"📈 交易密度: {trades_per_day:.2f} 笔/天")
         print(f"⏱️  平均持仓时长: {avg_duration_hours:.1f} 小时")
+        if source_hint:
+            print(f"📁 数据来源提示: {source_hint} 周期")
         
-        # 自动选择合适的时间分辨率
-        if total_days <= 7:  # 一周内
-            if avg_duration_hours <= 4:
-                timeframe = '15m'
-                print("🎯 选择分辨率: 15分钟线 (短期高频交易)")
-            elif avg_duration_hours <= 24:
-                timeframe = '1h'
-                print("🎯 选择分辨率: 小时线 (日内交易)")
+        # 优先考虑数据来源提示，然后基于交易特征选择分辨率
+        if source_hint == '15m' or (avg_duration_hours <= 2 and trades_per_day >= 10):
+            timeframe = '15m'
+            print("🎯 选择分辨率: 15分钟线 (高频短期交易)")
+        elif source_hint == '1h' or (avg_duration_hours <= 48 and (trades_per_day >= 0.5 or source_hint)):
+            timeframe = '1h'
+            if source_hint == '1h':
+                print("🎯 选择分辨率: 小时线 (基于数据来源)")
             else:
-                timeframe = '1d'
-                print("🎯 选择分辨率: 日线 (中长期交易)")
-        elif total_days <= 30:  # 一个月内
-            if avg_duration_hours <= 12:
-                timeframe = '1h'
-                print("🎯 选择分辨率: 小时线 (短期交易)")
-            else:
-                timeframe = '1d'
-                print("🎯 选择分辨率: 日线 (中期交易)")
-        else:  # 超过一个月
+                print("🎯 选择分辨率: 小时线 (基于交易特征)")
+        else:
             timeframe = '1d'
-            print("🎯 选择分辨率: 日线 (长期交易)")
+            if source_hint == '1d':
+                print("🎯 选择分辨率: 日线 (基于数据来源)")
+            else:
+                print("🎯 选择分辨率: 日线 (基于交易特征)")
         
         return timeframe
     
