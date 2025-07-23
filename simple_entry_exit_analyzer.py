@@ -294,7 +294,7 @@ class SimpleEntryExitAnalyzer:
             low_price = row['low']
             
             # 判断涨跌
-            color = 'red' if close_price >= open_price else 'green'  # 中国习惯：红涨绿跌
+            color = 'green' if close_price >= open_price else 'red'  # 绿涨红跌
             
             # 绘制上下影线
             ax1.plot([idx, idx], [low_price, high_price], color='black', linewidth=0.8, alpha=0.7)
@@ -335,19 +335,29 @@ class SimpleEntryExitAnalyzer:
                 ax1.plot([entry_time, exit_time], [entry_price, exit_price], 
                         color=line_color, alpha=line_alpha, linewidth=2, linestyle='-')
                 
-                # 收益标注
+                # 交易信息标注
                 mid_time = entry_time + (exit_time - entry_time) / 2
                 mid_price = (entry_price + exit_price) / 2
                 
-                # 计算收益率
-                return_rate = (pnl / abs(trade.get('AbsValue', 1))) * 100
-                pnl_text = f'{pnl:+.0f}\n({return_rate:+.1f}%)'
+                # 获取仓位大小信息和比例
+                position_size = abs(trade.get('AbsValue', 0))
+                tag_str = str(trade.get('Tag', '0'))
+                
+                # 解析Tag中的数值（去除逗号）
+                try:
+                    tag_value = float(tag_str.replace(',', '').replace('"', ''))
+                    position_ratio = (position_size / tag_value) * 100 if tag_value > 0 else 0
+                except:
+                    position_ratio = 0
+                
+                # 构建标签文本：入场价格、出场价格、仓位百分比
+                label_text = f'入: {entry_price:.0f}\n出: {exit_price:.0f}\n仓: {position_ratio:.2f}%'
                 
                 bbox_color = 'lightgreen' if pnl > 0 else 'lightcoral'
-                ax1.annotate(pnl_text, (mid_time, mid_price), 
+                ax1.annotate(label_text, (mid_time, mid_price), 
                            textcoords="offset points", xytext=(0,15), ha='center',
                            bbox=dict(boxstyle="round,pad=0.3", facecolor=bbox_color, alpha=0.8),
-                           fontsize=9, fontweight='bold')
+                           fontsize=8, fontweight='bold')
         
         # 设置主图标题
         time_range_str = ""
