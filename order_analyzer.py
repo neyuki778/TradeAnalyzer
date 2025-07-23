@@ -116,7 +116,7 @@ class OrderAnalyzer:
                         'Duration': (close_order['Time'] - open_order['Time']).total_seconds() / 3600,
                         'Type': 'Long',
                         'Status': 'Completed',
-                        'Tag': close_order['Tag'] if pd.notna(close_order['Tag']) else ''
+                        'Tag': open_order['Tag'] if pd.notna(open_order['Tag']) else ''
                     }
                     trades.append(trade)
                     
