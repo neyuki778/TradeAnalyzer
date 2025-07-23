@@ -267,19 +267,32 @@ class SimpleEntryExitAnalyzer:
             traceback.print_exc()
             return None
     
-    def _plot_kline_with_trades(self, symbol, market_data, trades, timeframe):
+    def _plot_kline_with_trades(self, symbol, market_data, trades, timeframe, start_date=None, end_date=None):
         """步骤4: 画出K线图和买卖点"""
         print(f"🎨 正在绘制 {symbol} 的K线图和交易点...")
         
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 12), 
                                       gridspec_kw={'height_ratios': [3, 1]})
         
-        # 过滤市场数据到交易时间范围
-        if not trades.empty:
-            start_time = trades['Time'].min() - timedelta(days=1)
-            end_time = trades['Time'].max() + timedelta(days=1)
-            market_data = market_data[(market_data.index >= start_time) & 
-                                    (market_data.index <= end_time)]
+        # 根据用户指定的时间段或交易时间范围过滤市场数据
+        if start_date or end_date:
+            if start_date:
+                start_dt = pd.to_datetime(start_date)
+                market_data = market_data[market_data.index >= start_dt]
+            if end_date:
+                end_dt = pd.to_datetime(end_date)  
+                market_data = market_data[market_data.index <= end_dt]
+        else:
+            # 如果没有指定时间段，基于交易数据范围并扩展一些边界
+            if not trades.empty:
+                trade_start = trades['Time'].min() - timedelta(days=3)
+                trade_end = trades['Time'].max() + timedelta(days=3)
+                market_data = market_data[(market_data.index >= trade_start) & 
+                                        (market_data.index <= trade_end)]
+        
+        if market_data.empty:
+            print("⚠️  指定时间段内没有市场数据")
+            return None
         
         # 绘制价格线（简化的K线图）
         ax1.plot(market_data.index, market_data['close'], 
@@ -329,8 +342,12 @@ class SimpleEntryExitAnalyzer:
                            bbox=dict(boxstyle="round,pad=0.3", facecolor=bbox_color, alpha=0.8),
                            fontsize=9, fontweight='bold')
         
-        # 设置主图
-        ax1.set_title(f'{symbol} 出入场分析 - {timeframe} 时间周期', fontsize=16, fontweight='bold')
+        # 设置主图标题
+        time_range_str = ""
+        if start_date or end_date:
+            time_range_str = f" ({start_date or '开始'} 到 {end_date or '结束'})"
+        ax1.set_title(f'{symbol} 出入场分析{time_range_str} - {timeframe} 时间周期', 
+                     fontsize=16, fontweight='bold')
         ax1.set_ylabel('价格 (USD)', fontsize=12)
         ax1.legend(loc='upper left', framealpha=0.9)
         ax1.grid(True, alpha=0.3)
@@ -340,8 +357,12 @@ class SimpleEntryExitAnalyzer:
             ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
             ax1.xaxis.set_major_locator(mdates.MonthLocator())
         elif timeframe == '1h':
-            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
-            ax1.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+            if len(market_data) > 168:  # 超过一周的数据
+                ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+                ax1.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+            else:
+                ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
+                ax1.xaxis.set_major_locator(mdates.HourLocator(interval=12))
         else:  # 15m
             ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
             ax1.xaxis.set_major_locator(mdates.HourLocator(interval=6))
@@ -373,8 +394,12 @@ class SimpleEntryExitAnalyzer:
                 ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
                 ax2.xaxis.set_major_locator(mdates.MonthLocator())
             elif timeframe == '1h':
-                ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
-                ax2.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+                if len(market_data) > 168:
+                    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+                    ax2.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+                else:
+                    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
+                    ax2.xaxis.set_major_locator(mdates.HourLocator(interval=12))
             else:
                 ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %H:%M'))
                 ax2.xaxis.set_major_locator(mdates.HourLocator(interval=6))
@@ -384,30 +409,48 @@ class SimpleEntryExitAnalyzer:
         plt.tight_layout()
         
         # 保存图表
-        filename = f"{symbol}_{timeframe}_entry_exit_analysis.png"
+        time_suffix = ""
+        if start_date or end_date:
+            time_suffix = f"_{start_date or 'start'}_to_{end_date or 'end'}"
+        filename = f"{symbol}_{timeframe}_entry_exit_analysis{time_suffix}.png"
         plt.savefig(filename, dpi=150, bbox_inches='tight')
         print(f"💾 图表已保存: {filename}")
         
         plt.show()
         return fig
     
-    def analyze_symbol(self, symbol):
+    def analyze_symbol(self, symbol, start_date=None, end_date=None):
         """分析指定交易对的完整流程"""
         print(f"\n{'='*60}")
         print(f"🎯 开始分析 {symbol}")
+        if start_date or end_date:
+            print(f"📅 分析时间段: {start_date or '开始'} 到 {end_date or '结束'}")
         print(f"{'='*60}")
         
         # 筛选该交易对的数据
-        symbol_trades = self.trades_data[self.trades_data['Symbol'] == symbol]
+        symbol_trades = self.trades_data[self.trades_data['Symbol'] == symbol].copy()
         
         if symbol_trades.empty:
             print(f"❌ 没有找到 {symbol} 的交易记录")
             return
         
+        # 按时间段筛选
+        if start_date:
+            start_dt = pd.to_datetime(start_date)
+            symbol_trades = symbol_trades[symbol_trades['Time'] >= start_dt]
+        
+        if end_date:
+            end_dt = pd.to_datetime(end_date)
+            symbol_trades = symbol_trades[symbol_trades['Time'] <= end_dt]
+        
+        if symbol_trades.empty:
+            print(f"❌ 指定时间段内没有 {symbol} 的交易记录")
+            return
+        
         print(f"📊 找到 {len(symbol_trades)} 个交易记录")
         
-        # 步骤2: 自动匹配分辨率
-        timeframe = self._determine_optimal_timeframe(symbol)
+        # 步骤2: 自动匹配分辨率（基于筛选后的数据）
+        timeframe = self._determine_optimal_timeframe_for_period(symbol_trades, start_date, end_date)
         
         # 步骤3: 寻找市场数据
         market_file = self._find_market_data(symbol, timeframe)
@@ -425,9 +468,79 @@ class SimpleEntryExitAnalyzer:
         self._print_trade_summary(symbol_trades)
         
         # 步骤4: 绘制图表
-        self._plot_kline_with_trades(symbol, market_data, symbol_trades, timeframe)
+        self._plot_kline_with_trades(symbol, market_data, symbol_trades, timeframe, start_date, end_date)
         
         print(f"✅ {symbol} 分析完成!")
+    
+    def _determine_optimal_timeframe_for_period(self, symbol_trades, start_date=None, end_date=None):
+        """为指定时间段确定最佳时间框架"""
+        symbol = symbol_trades['Symbol'].iloc[0]
+        
+        # 计算实际分析的时间跨度
+        if start_date and end_date:
+            time_span = pd.to_datetime(end_date) - pd.to_datetime(start_date)
+            analysis_days = time_span.days
+        else:
+            time_span = symbol_trades['Time'].max() - symbol_trades['Time'].min()
+            analysis_days = time_span.days
+        
+        total_trades = len(symbol_trades)
+        trades_per_day = total_trades / max(analysis_days, 1)
+        
+        # 分析平均持仓时长
+        if 'Duration' in symbol_trades.columns:
+            avg_duration_hours = symbol_trades['Duration'].mean()
+        else:
+            time_diffs = symbol_trades['Time'].diff().dropna()
+            if len(time_diffs) > 0:
+                avg_interval_hours = time_diffs.mean().total_seconds() / 3600
+                avg_duration_hours = avg_interval_hours
+            else:
+                avg_duration_hours = 24
+        
+        # 检查数据来源文件名
+        source_hint = None
+        if hasattr(self, 'csv_path'):
+            if 'HOUR' in self.csv_path.upper() or '1H' in self.csv_path.upper():
+                source_hint = '1h'
+            elif 'DAILY' in self.csv_path.upper() or '1D' in self.csv_path.upper():
+                source_hint = '1d' 
+            elif '15M' in self.csv_path.upper() or 'MIN' in self.csv_path.upper():
+                source_hint = '15m'
+        
+        print(f"📅 {symbol} 分析时间跨度: {analysis_days} 天")
+        print(f"📊 交易总数: {total_trades} 笔")
+        print(f"📈 交易密度: {trades_per_day:.2f} 笔/天")
+        print(f"⏱️  平均持仓时长: {avg_duration_hours:.1f} 小时")
+        if source_hint:
+            print(f"📁 数据来源提示: {source_hint} 周期")
+        
+        # 基于分析时间跨度和交易密度智能选择分辨率
+        if analysis_days <= 7:  # 一周内，显示更多细节
+            if source_hint == '15m' or avg_duration_hours <= 2:
+                timeframe = '15m'
+                print("🎯 选择分辨率: 15分钟线 (短期分析)")
+            elif source_hint == '1h' or avg_duration_hours <= 24:
+                timeframe = '1h'
+                print("🎯 选择分辨率: 小时线 (短期分析)")
+            else:
+                timeframe = '1d'
+                print("🎯 选择分辨率: 日线 (短期分析)")
+        elif analysis_days <= 30:  # 一个月内
+            if source_hint == '1h' and avg_duration_hours <= 12:
+                timeframe = '1h'
+                print("🎯 选择分辨率: 小时线 (中期分析)")
+            else:
+                timeframe = '1d'
+                print("🎯 选择分辨率: 日线 (中期分析)")
+        else:  # 超过一个月，优先日线避免过于密集
+            timeframe = '1d'
+            if source_hint:
+                print(f"🎯 选择分辨率: 日线 (长期分析，避免过于密集)")
+            else:
+                print("🎯 选择分辨率: 日线 (长期分析)")
+        
+        return timeframe
     
     def _print_trade_summary(self, trades):
         """打印交易摘要"""
@@ -452,13 +565,17 @@ class SimpleEntryExitAnalyzer:
         if len(losing_trades) > 0:
             print(f"  平均亏损: {losing_trades['Value'].mean():+,.2f}")
     
-    def analyze_all_symbols(self):
+    def analyze_all_symbols(self, start_date=None, end_date=None):
         """分析所有交易对"""
-        print(f"🚀 开始分析所有交易对: {', '.join(self.symbols)}")
+        time_range_str = ""
+        if start_date or end_date:
+            time_range_str = f" ({start_date or '开始'} 到 {end_date or '结束'})"
+        
+        print(f"🚀 开始分析所有交易对{time_range_str}: {', '.join(self.symbols)}")
         
         for symbol in self.symbols:
             try:
-                self.analyze_symbol(symbol)
+                self.analyze_symbol(symbol, start_date, end_date)
             except Exception as e:
                 print(f"❌ 分析 {symbol} 时出错: {e}")
                 continue
@@ -486,8 +603,25 @@ def main():
             print("❌ 未找到可交易的符号")
             return
         
-        # 让用户选择分析方式
+        # 询问是否指定时间段
         print(f"\n🎯 可分析的交易对: {', '.join(analyzer.symbols)}")
+        print("\n是否指定分析时间段? (可提高图表清晰度)")
+        use_time_range = input("输入 y 指定时间段，回车跳过: ").strip().lower()
+        
+        start_date = None
+        end_date = None
+        
+        if use_time_range in ['y', 'yes', '是']:
+            start_date = input("请输入开始日期 (YYYY-MM-DD, 回车跳过): ").strip()
+            end_date = input("请输入结束日期 (YYYY-MM-DD, 回车跳过): ").strip()
+            
+            start_date = start_date if start_date else None
+            end_date = end_date if end_date else None
+            
+            if start_date or end_date:
+                print(f"📅 将分析时间段: {start_date or '开始'} 到 {end_date or '结束'}")
+        
+        # 让用户选择分析方式
         print("\n选择分析方式:")
         print("1. 分析所有交易对")
         print("2. 选择特定交易对")
@@ -495,7 +629,7 @@ def main():
         choice = input("请选择 (1 或 2): ").strip()
         
         if choice == '1':
-            analyzer.analyze_all_symbols()
+            analyzer.analyze_all_symbols(start_date, end_date)
         elif choice == '2':
             print("\n可选交易对:")
             for i, symbol in enumerate(analyzer.symbols, 1):
@@ -505,7 +639,7 @@ def main():
                 symbol_choice = int(input("请选择交易对序号: ")) - 1
                 if 0 <= symbol_choice < len(analyzer.symbols):
                     selected_symbol = analyzer.symbols[symbol_choice]
-                    analyzer.analyze_symbol(selected_symbol)
+                    analyzer.analyze_symbol(selected_symbol, start_date, end_date)
                 else:
                     print("❌ 无效选择")
             except ValueError:
