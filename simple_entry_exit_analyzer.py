@@ -66,64 +66,45 @@ class SimpleEntryExitAnalyzer:
             raise
     
     def _determine_optimal_timeframe(self, symbol):
-        """步骤2: 自动匹配最佳分辨率"""
+        """步骤2: 自动匹配最佳分辨率（仅基于订单来源）"""
         symbol_trades = self.trades_data[self.trades_data['Symbol'] == symbol]
         if symbol_trades.empty:
             return '1d'
         
-        # 分析交易频率和密度
+        # 检查数据来源文件名，判断原始策略周期
+        source_hint = None
+        if hasattr(self, 'csv_path'):
+            csv_path_upper = self.csv_path.upper()
+            if 'HOUR' in csv_path_upper or '1H' in csv_path_upper:
+                source_hint = '1h'
+            elif 'DAILY' in csv_path_upper or '1D' in csv_path_upper:
+                source_hint = '1d' 
+            elif '15M' in csv_path_upper or 'MIN' in csv_path_upper:
+                source_hint = '15m'
+        
+        # 显示基本信息
         time_span = symbol_trades['Time'].max() - symbol_trades['Time'].min()
         total_days = time_span.days
         total_trades = len(symbol_trades)
         
-        # 计算交易密度（每天平均交易次数）
-        trades_per_day = total_trades / max(total_days, 1)
-        
-        # 分析平均持仓时长
-        if 'Duration' in symbol_trades.columns:
-            avg_duration_hours = symbol_trades['Duration'].mean()
-        else:
-            # 如果没有Duration列，分析交易时间间隔
-            time_diffs = symbol_trades['Time'].diff().dropna()
-            if len(time_diffs) > 0:
-                avg_interval_hours = time_diffs.mean().total_seconds() / 3600
-                avg_duration_hours = avg_interval_hours
-            else:
-                avg_duration_hours = 24  # 默认1天
-        
-        # 检查数据来源文件名，判断原始策略周期
-        source_hint = None
-        if hasattr(self, 'csv_path'):
-            if 'HOUR' in self.csv_path.upper() or '1H' in self.csv_path.upper():
-                source_hint = '1h'
-            elif 'DAILY' in self.csv_path.upper() or '1D' in self.csv_path.upper():
-                source_hint = '1d' 
-            elif '15M' in self.csv_path.upper() or 'MIN' in self.csv_path.upper():
-                source_hint = '15m'
-        
         print(f"📅 {symbol} 交易时间跨度: {total_days} 天")
         print(f"📊 交易总数: {total_trades} 笔")
-        print(f"📈 交易密度: {trades_per_day:.2f} 笔/天")
-        print(f"⏱️  平均持仓时长: {avg_duration_hours:.1f} 小时")
-        if source_hint:
-            print(f"📁 数据来源提示: {source_hint} 周期")
+        print(f"📁 订单数据源: {self.csv_path}")
         
-        # 优先考虑数据来源提示，然后基于交易特征选择分辨率
-        if source_hint == '15m' or (avg_duration_hours <= 2 and trades_per_day >= 10):
+        # 完全基于数据来源提示选择分辨率
+        if source_hint == '15m':
             timeframe = '15m'
-            print("🎯 选择分辨率: 15分钟线 (高频短期交易)")
-        elif source_hint == '1h' or (avg_duration_hours <= 48 and (trades_per_day >= 0.5 or source_hint)):
+            print("🎯 选择分辨率: 15分钟线 (基于订单来源)")
+        elif source_hint == '1h':
             timeframe = '1h'
-            if source_hint == '1h':
-                print("🎯 选择分辨率: 小时线 (基于数据来源)")
-            else:
-                print("🎯 选择分辨率: 小时线 (基于交易特征)")
-        else:
+            print("🎯 选择分辨率: 小时线 (基于订单来源)")
+        elif source_hint == '1d':
             timeframe = '1d'
-            if source_hint == '1d':
-                print("🎯 选择分辨率: 日线 (基于数据来源)")
-            else:
-                print("🎯 选择分辨率: 日线 (基于交易特征)")
+            print("🎯 选择分辨率: 日线 (基于订单来源)")
+        else:
+            # 如果无法从文件名识别，默认使用日线
+            timeframe = '1d'
+            print("🎯 选择分辨率: 日线 (默认，无法识别订单来源周期)")
         
         return timeframe
     
@@ -499,7 +480,7 @@ class SimpleEntryExitAnalyzer:
         print(f"✅ {symbol} 分析完成!")
     
     def _determine_optimal_timeframe_for_period(self, symbol_trades, start_date=None, end_date=None):
-        """为指定时间段确定最佳时间框架"""
+        """为指定时间段确定最佳时间框架（仅基于订单来源）"""
         symbol = symbol_trades['Symbol'].iloc[0]
         
         # 计算实际分析的时间跨度
@@ -511,60 +492,36 @@ class SimpleEntryExitAnalyzer:
             analysis_days = time_span.days
         
         total_trades = len(symbol_trades)
-        trades_per_day = total_trades / max(analysis_days, 1)
         
-        # 分析平均持仓时长
-        if 'Duration' in symbol_trades.columns:
-            avg_duration_hours = symbol_trades['Duration'].mean()
-        else:
-            time_diffs = symbol_trades['Time'].diff().dropna()
-            if len(time_diffs) > 0:
-                avg_interval_hours = time_diffs.mean().total_seconds() / 3600
-                avg_duration_hours = avg_interval_hours
-            else:
-                avg_duration_hours = 24
-        
-        # 检查数据来源文件名
+        # 检查数据来源文件名，判断原始策略周期
         source_hint = None
         if hasattr(self, 'csv_path'):
-            if 'HOUR' in self.csv_path.upper() or '1H' in self.csv_path.upper():
+            csv_path_upper = self.csv_path.upper()
+            if 'HOUR' in csv_path_upper or '1H' in csv_path_upper:
                 source_hint = '1h'
-            elif 'DAILY' in self.csv_path.upper() or '1D' in self.csv_path.upper():
+            elif 'DAILY' in csv_path_upper or '1D' in csv_path_upper:
                 source_hint = '1d' 
-            elif '15M' in self.csv_path.upper() or 'MIN' in self.csv_path.upper():
+            elif '15M' in csv_path_upper or 'MIN' in csv_path_upper:
                 source_hint = '15m'
         
         print(f"📅 {symbol} 分析时间跨度: {analysis_days} 天")
         print(f"📊 交易总数: {total_trades} 笔")
-        print(f"📈 交易密度: {trades_per_day:.2f} 笔/天")
-        print(f"⏱️  平均持仓时长: {avg_duration_hours:.1f} 小时")
-        if source_hint:
-            print(f"📁 数据来源提示: {source_hint} 周期")
+        print(f"📁 订单数据源: {self.csv_path}")
         
-        # 基于分析时间跨度和交易密度智能选择分辨率
-        if analysis_days <= 7:  # 一周内，显示更多细节
-            if source_hint == '15m' or avg_duration_hours <= 2:
-                timeframe = '15m'
-                print("🎯 选择分辨率: 15分钟线 (短期分析)")
-            elif source_hint == '1h' or avg_duration_hours <= 24:
-                timeframe = '1h'
-                print("🎯 选择分辨率: 小时线 (短期分析)")
-            else:
-                timeframe = '1d'
-                print("🎯 选择分辨率: 日线 (短期分析)")
-        elif analysis_days <= 30:  # 一个月内
-            if source_hint == '1h' and avg_duration_hours <= 12:
-                timeframe = '1h'
-                print("🎯 选择分辨率: 小时线 (中期分析)")
-            else:
-                timeframe = '1d'
-                print("🎯 选择分辨率: 日线 (中期分析)")
-        else:  # 超过一个月，优先日线避免过于密集
+        # 完全基于数据来源提示选择分辨率
+        if source_hint == '15m':
+            timeframe = '15m'
+            print("🎯 选择分辨率: 15分钟线 (基于订单来源)")
+        elif source_hint == '1h':
+            timeframe = '1h' 
+            print("🎯 选择分辨率: 小时线 (基于订单来源)")
+        elif source_hint == '1d':
             timeframe = '1d'
-            if source_hint:
-                print(f"🎯 选择分辨率: 日线 (长期分析，避免过于密集)")
-            else:
-                print("🎯 选择分辨率: 日线 (长期分析)")
+            print("🎯 选择分辨率: 日线 (基于订单来源)")
+        else:
+            # 如果无法从文件名识别，默认使用日线
+            timeframe = '1d'
+            print("🎯 选择分辨率: 日线 (默认，无法识别订单来源周期)")
         
         return timeframe
     
