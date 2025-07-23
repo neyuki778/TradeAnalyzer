@@ -350,8 +350,28 @@ class SimpleEntryExitAnalyzer:
                 except:
                     position_ratio = 0
                 
-                # 构建标签文本：入场价格、出场价格、仓位百分比
-                label_text = f'入: {entry_price:.0f}\n出: {exit_price:.0f}\n仓: {position_ratio:.2f}%'
+                # 计算持仓时间
+                if pd.notna(exit_time) and pd.notna(entry_time):
+                    holding_duration = exit_time - entry_time
+                    
+                    # 格式化持仓时间
+                    total_hours = holding_duration.total_seconds() / 3600
+                    if total_hours < 1:
+                        duration_str = f"{int(holding_duration.total_seconds() / 60)}m"
+                    elif total_hours < 24:
+                        duration_str = f"{total_hours:.1f}h"
+                    else:
+                        days = int(total_hours / 24)
+                        remaining_hours = total_hours % 24
+                        if remaining_hours < 1:
+                            duration_str = f"{days}d"
+                        else:
+                            duration_str = f"{days}d{remaining_hours:.0f}h"
+                else:
+                    duration_str = "未知"
+                
+                # 构建标签文本：入场价格、出场价格、仓位百分比、持仓时间
+                label_text = f'入: {entry_price:.0f}\n出: {exit_price:.0f}\n仓: {position_ratio:.2f}%\n时: {duration_str}'
                 
                 bbox_color = 'lightgreen' if pnl > 0 else 'lightcoral'
                 ax1.annotate(label_text, (mid_time, mid_price), 
