@@ -65,6 +65,20 @@ class SimpleEntryExitAnalyzer:
             print(f"❌ 加载订单数据失败: {e}")
             raise
     
+    def _extract_exit_reason(self, close_tag):
+        """直接使用出场时的tag作为出场原因"""
+        if not close_tag or close_tag == 'nan' or str(close_tag).strip() == '':
+            return None
+        
+        close_tag = str(close_tag).strip()
+        
+        # 如果是纯数字（可能是其他信息），不作为出场原因
+        if close_tag.replace(',', '').replace('.', '').replace('"', '').replace(' ', '').isdigit():
+            return None
+        
+        # 直接返回出场标签，限制长度避免过长
+        return close_tag[:15]
+    
     def _determine_optimal_timeframe(self, symbol):
         """步骤2: 自动匹配最佳分辨率（仅基于订单来源）"""
         symbol_trades = self.trades_data[self.trades_data['Symbol'] == symbol]
@@ -317,6 +331,10 @@ class SimpleEntryExitAnalyzer:
             exit_price = trade.get('ClosePrice')
             pnl = trade['Value']
             
+            # 获取出场原因
+            close_tag = str(trade.get('CloseTag', ''))
+            exit_reason = self._extract_exit_reason(close_tag)
+            
             # 买入点（绿色向上三角形）
             ax1.scatter(entry_time, entry_price, color='green', s=120, marker='^', 
                        label='买入' if trades.index[0] == trade.name else "", 
@@ -370,14 +388,35 @@ class SimpleEntryExitAnalyzer:
                 else:
                     duration_str = "未知"
                 
-                # 构建标签文本：入场价格、出场价格、仓位百分比、持仓时间
-                label_text = f'入: {entry_price:.0f}\n出: {exit_price:.0f}\n仓: {position_ratio:.2f}%\n时: {duration_str}'
+                # 构建标签文本：入场价格、出场价格、出场原因、仓位百分比、持仓时间
+                label_lines = [
+                    f'入: {entry_price:.0f}',
+                    f'出: {exit_price:.0f}'
+                ]
+                
+                # 如果有出场原因，添加到标签中
+                # if exit_reason:
+                #     label_lines.append(f'原因: {exit_reason}')
+                
+                label_lines.extend([
+                    f'仓: {position_ratio:.2f}%',
+                    f'时: {duration_str}'
+                ])
+                
+                label_text = '\n'.join(label_lines)
                 
                 bbox_color = 'lightgreen' if pnl > 0 else 'lightcoral'
                 ax1.annotate(label_text, (mid_time, mid_price), 
                            textcoords="offset points", xytext=(0,15), ha='center',
                            bbox=dict(boxstyle="round,pad=0.3", facecolor=bbox_color, alpha=0.8),
                            fontsize=8, fontweight='bold')
+                
+                # 在出场点单独标注出场原因（如果存在）
+                if exit_reason:
+                    ax1.annotate(exit_reason, (exit_time, exit_price), 
+                               textcoords="offset points", xytext=(10, -20), ha='left',
+                               bbox=dict(boxstyle="round,pad=0.2", facecolor='yellow', alpha=0.9),
+                               fontsize=7, fontweight='bold', color='red')
         
         # 设置主图标题
         time_range_str = ""
