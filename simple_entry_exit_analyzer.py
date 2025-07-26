@@ -189,11 +189,15 @@ class SimpleEntryExitAnalyzer:
                     if isinstance(first_val, (int, float)) and first_val > 1e12:
                         df['timestamp'] = pd.to_datetime(df['Open time'], unit='ms')
                     else:
-                        # 作为日期字符串解析
-                        df['timestamp'] = pd.to_datetime(df['Open time'])
+                        # 作为日期字符串解析，使用混合格式自动推断
+                        df['timestamp'] = pd.to_datetime(df['Open time'], format='mixed', dayfirst=False)
                 except:
-                    # 备用方案：直接解析
-                    df['timestamp'] = pd.to_datetime(df['Open time'])
+                    # 备用方案：ISO8601格式
+                    try:
+                        df['timestamp'] = pd.to_datetime(df['Open time'], format='ISO8601')
+                    except:
+                        # 最后备用方案：自动推断
+                        df['timestamp'] = pd.to_datetime(df['Open time'], infer_datetime_format=True)
             else:
                 # 使用第一列作为时间戳
                 first_col = df.columns[0]
@@ -202,9 +206,12 @@ class SimpleEntryExitAnalyzer:
                     if isinstance(first_val, (int, float)) and first_val > 1e12:
                         df['timestamp'] = pd.to_datetime(df[first_col], unit='ms')
                     else:
-                        df['timestamp'] = pd.to_datetime(df[first_col])
+                        df['timestamp'] = pd.to_datetime(df[first_col], format='mixed', dayfirst=False)
                 except:
-                    df['timestamp'] = pd.to_datetime(df[first_col])
+                    try:
+                        df['timestamp'] = pd.to_datetime(df[first_col], format='ISO8601')
+                    except:
+                        df['timestamp'] = pd.to_datetime(df[first_col], infer_datetime_format=True)
             
             # 重命名OHLCV列 - 适配不同的列名格式
             col_mapping = {}
