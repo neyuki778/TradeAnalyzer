@@ -123,27 +123,30 @@ class SimpleEntryExitAnalyzer:
         return timeframe
     
     def _find_market_data(self, symbol, timeframe):
-        """步骤3: 寻找对应的市场数据"""
+        """步骤3: 寻找对应的市场数据 - 支持现货和期货"""
         print(f"🔍 寻找 {symbol} 的 {timeframe} 市场数据...")
         
-        # 构建可能的文件路径
-        symbol_dir = os.path.join(self.market_data_path, symbol)
-        if not os.path.exists(symbol_dir):
-            # 尝试其他可能的符号格式
-            for alt_symbol in [symbol + 'T', symbol.replace('USD', 'USDT')]:
-                alt_dir = os.path.join(self.market_data_path, alt_symbol)
-                if os.path.exists(alt_dir):
-                    symbol_dir = alt_dir
-                    print(f"📂 找到替代目录: {alt_symbol}")
-                    break
-            else:
-                print(f"❌ 未找到 {symbol} 的市场数据目录")
-                return None
+        # 清理符号名称：移除多余的USD后缀（如SPKUSDTUSD -> SPKUSDT）
+        clean_symbol = self._clean_symbol_name(symbol)
+        print(f"🧹 清理后的符号: {clean_symbol}")
         
-        # 查找最匹配的数据文件
-        if not os.path.exists(symbol_dir):
+        # 先尝试直接匹配
+        symbol_dir = self._try_find_symbol_directory(clean_symbol)
+        
+        if not symbol_dir:
+            # 如果直接匹配失败，尝试符号变换
+            alt_symbols = self._generate_symbol_alternatives(clean_symbol)
+            for alt_symbol in alt_symbols:
+                symbol_dir = self._try_find_symbol_directory(alt_symbol)
+                if symbol_dir:
+                    print(f"📂 找到替代符号: {alt_symbol}")
+                    break
+        
+        if not symbol_dir:
+            print(f"❌ 未找到 {symbol} 的市场数据目录")
             return None
         
+        # 查找最匹配的数据文件
         files = os.listdir(symbol_dir)
         csv_files = [f for f in files if f.endswith('.csv')]
         
@@ -174,6 +177,70 @@ class SimpleEntryExitAnalyzer:
         else:
             print(f"❌ 未找到 {symbol} 的数据文件")
             return None
+    
+    def _clean_symbol_name(self, symbol):
+        """清理符号名称，处理重复后缀等问题"""
+        # 移除重复的USD后缀（如SPKUSDTUSD -> SPKUSDT）
+        if symbol.endswith('USDUSD'):
+            return symbol[:-3]  # 移除最后的USD
+        elif symbol.endswith('USDTUSD'):
+            return symbol[:-3]  # 移除最后的USD
+        return symbol
+    
+    def _try_find_symbol_directory(self, symbol):
+        """尝试在SPOT和FUTURES目录中查找符号"""
+        # 检查SPOT目录
+        spot_dir = os.path.join(self.market_data_path, 'SPOT', symbol)
+        if os.path.exists(spot_dir):
+            print(f"📂 在SPOT目录找到: {symbol}")
+            return spot_dir
+        
+        # 检查FUTURES目录
+        futures_dir = os.path.join(self.market_data_path, 'FUTURES', symbol)
+        if os.path.exists(futures_dir):
+            print(f"📂 在FUTURES目录找到: {symbol}")
+            return futures_dir
+        
+        # 检查根目录（兼容旧格式）
+        root_dir = os.path.join(self.market_data_path, symbol)
+        if os.path.exists(root_dir):
+            print(f"📂 在根目录找到: {symbol}")
+            return root_dir
+        
+        return None
+    
+    def _generate_symbol_alternatives(self, symbol):
+        """生成可能的符号变体"""
+        alternatives = []
+        
+        # 原始符号
+        alternatives.append(symbol)
+        
+        # 添加USDT后缀（如果没有）
+        if not symbol.endswith('USDT') and not symbol.endswith('USD'):
+            alternatives.append(symbol + 'USDT')
+            alternatives.append(symbol + 'USD')
+        
+        # 替换USD为USDT或反之
+        if symbol.endswith('USD') and not symbol.endswith('USDT'):
+            alternatives.append(symbol + 'T')  # USD -> USDT
+        elif symbol.endswith('USDT'):
+            alternatives.append(symbol[:-1])   # USDT -> USD
+        
+        # 移除常见后缀再重新组合
+        base_symbol = symbol
+        for suffix in ['USDT', 'USD', 'BTC', 'ETH']:
+            if symbol.endswith(suffix):
+                base_symbol = symbol[:-len(suffix)]
+                break
+        
+        # 重新组合常见后缀
+        for suffix in ['USDT', 'USD']:
+            if base_symbol + suffix not in alternatives:
+                alternatives.append(base_symbol + suffix)
+        
+        print(f"🔄 生成符号变体: {alternatives}")
+        return alternatives
     
     def _load_market_data(self, file_path):
         """加载市场数据"""
@@ -395,15 +462,29 @@ class SimpleEntryExitAnalyzer:
                 else:
                     duration_str = "未知"
                 
-                # 构建标签文本：入场价格、出场价格、出场原因、仓位百分比、持仓时间
+                # 构建标签文本：入场价格、出场价格、出场原因、仓位百分比、持仓时间  
+                # 智能价格格式化：根据价格大小选择合适的小数位数
+                def format_price(price):
+                    price = float(price)
+                    if price >= 100:
+                        return f"{price:.0f}"
+                    elif price >= 10:
+                        return f"{price:.1f}"
+                    elif price >= 1:
+                        return f"{price:.2f}"
+                    elif price >= 0.1:
+                        return f"{price:.3f}"
+                    else:
+                        return f"{price:.4f}"
+                
                 label_lines = [
-                    f'入: {entry_price:.0f}',
-                    f'出: {exit_price:.0f}'
+                    f'入: {format_price(entry_price)}',
+                    f'出: {format_price(exit_price)}'
                 ]
                 
                 # 如果有出场原因，添加到标签中
-                # if exit_reason:
-                #     label_lines.append(f'原因: {exit_reason}')
+                if exit_reason:
+                    label_lines.append(f'原因: {exit_reason}')
                 
                 label_lines.extend([
                     f'仓: {position_ratio:.2f}%',
