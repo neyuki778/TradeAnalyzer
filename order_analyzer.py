@@ -36,7 +36,7 @@ class OrderAnalyzer:
             raise
             
     def _preprocess_data(self):
-        """预处理数据 - 针对多头策略的开平仓配对分析"""
+        """预处理数据 - 支持多头和空头策略的开平仓配对分析"""
         if self.raw_data is None:
             raise ValueError("原始数据未加载")
             
@@ -47,8 +47,8 @@ class OrderAnalyzer:
         filled_data = self.raw_data[self.raw_data['Status'] == 'Filled'].copy()
         print(f"过滤无效订单后: {len(filled_data)} 条有效订单")
         
-        # 2. 分析开平仓配对 - 多头策略特征分析
-        filled_data['OrderSide'] = np.where(filled_data['Quantity'] > 0, 'Open', 'Close')
+        # 2. 智能判断开平仓 - 支持多头和空头
+        filled_data['OrderSide'] = filled_data.apply(self._determine_order_side, axis=1)
         filled_data['AbsQuantity'] = abs(filled_data['Quantity'])
         filled_data['AbsValue'] = abs(filled_data['Value'])
         
@@ -65,9 +65,25 @@ class OrderAnalyzer:
             print(f"配对分析完成: {len(self.processed_data)} 个完整交易")
         else:
             print("警告: 没有找到完整的开平仓配对")
+    
+    def _determine_order_side(self, row):
+        """智能判断订单类型：开仓还是平仓"""
+        quantity = row['Quantity']
+        tag = str(row['Tag']) if pd.notna(row['Tag']) else ''
+        
+        # 判断tag是否为数字（开仓）还是文字（平仓）
+        tag_cleaned = tag.replace(',', '').replace('"', '').replace(' ', '')
+        is_numeric_tag = tag_cleaned.replace('.', '').isdigit() if tag_cleaned else False
+        
+        if is_numeric_tag:
+            # Tag是数字，表示开仓
+            return 'Open'
+        else:
+            # Tag是文字，表示平仓
+            return 'Close'
             
     def _pair_open_close_orders(self, filled_data):
-        """配对开平仓订单，计算完整交易的真实收益 - 优化版本"""
+        """配对开平仓订单，计算完整交易的真实收益 - 支持多头和空头"""
         trades = []
         
         print("开始配对开平仓订单...")
@@ -76,53 +92,22 @@ class OrderAnalyzer:
         for symbol in filled_data['Symbol'].unique():
             symbol_data = filled_data[filled_data['Symbol'] == symbol].sort_values('Time').reset_index(drop=True)
             
-            # 分离开仓和平仓订单
-            open_orders = symbol_data[symbol_data['Quantity'] > 0].copy()
-            close_orders = symbol_data[symbol_data['Quantity'] < 0].copy()
+            # 分离开仓和平仓订单（基于Tag判断，而非数量符号）
+            open_orders = symbol_data[symbol_data['OrderSide'] == 'Open'].copy()
+            close_orders = symbol_data[symbol_data['OrderSide'] == 'Close'].copy()
             
-            print(f"处理 {symbol}: {len(open_orders)} 开仓, {len(close_orders)} 平仓")
+            # 进一步按多空方向分类开仓订单
+            long_opens = open_orders[open_orders['Quantity'] > 0].copy()  # 多头开仓
+            short_opens = open_orders[open_orders['Quantity'] < 0].copy()  # 空头开仓
             
-            # 使用更高效的配对算法
-            used_close_indices = set()
+            print(f"处理 {symbol}: {len(long_opens)} 多头开仓, {len(short_opens)} 空头开仓, {len(close_orders)} 平仓")
             
-            for _, open_order in open_orders.iterrows():
-                # 找到这个开仓之后且尚未被使用的平仓订单
-                valid_closes = close_orders[
-                    (close_orders['Time'] > open_order['Time']) & 
-                    (~close_orders.index.isin(used_close_indices))
-                ]
-                
-                if not valid_closes.empty:
-                    # 选择最近的平仓订单
-                    close_order = valid_closes.iloc[0]
-                    
-                    # 计算真实的交易收益
-                    # 根据数据观察：开仓订单Value>0(支出)，平仓订单Value<0(收入但为负值)
-                    # P&L = |平仓收入| - |开仓支出| = abs(close_value) - abs(open_value)
-                    trade_pnl = abs(close_order['Value']) - abs(open_order['Value'])
-                    
-                    # 创建完整交易记录
-                    trade = {
-                        'Time': open_order['Time'],
-                        'CloseTime': close_order['Time'],
-                        'Symbol': symbol,
-                        'OpenPrice': open_order['Price'],
-                        'ClosePrice': close_order['Price'],
-                        'Quantity': open_order['AbsQuantity'],
-                        'OpenValue': abs(open_order['Value']),  # 买入成本(正值显示)
-                        'CloseValue': abs(close_order['Value']), # 卖出收入(正值显示)
-                        'Value': trade_pnl,  # 真实交易净收益
-                        'AbsValue': abs(open_order['Value']),  # 仓位大小(买入成本)
-                        'Duration': (close_order['Time'] - open_order['Time']).total_seconds() / 3600,
-                        'Type': 'Long',
-                        'Status': 'Completed',
-                        'Tag': open_order['Tag'] if pd.notna(open_order['Tag']) else ''
-                    }
-                    trades.append(trade)
-                    
-                    # 标记已使用的平仓订单
-                    used_close_indices.add(close_order.name)
-        
+            # 处理多头交易配对
+            self._pair_trades_by_direction(long_opens, close_orders, trades, 'Long')
+            
+            # 处理空头交易配对
+            self._pair_trades_by_direction(short_opens, close_orders, trades, 'Short')
+            
         if not trades:
             print("⚠️  未找到匹配的开平仓配对，可能数据格式不符合预期")
             # 如果配对失败，返回原始数据（去除无效订单）
@@ -137,8 +122,60 @@ class OrderAnalyzer:
         if len(trades_df) > 0:
             print(f"📈 平均持仓时长: {trades_df['Duration'].mean():.1f} 小时")
             print(f"💰 平均交易收益: {trades_df['Value'].mean():.2f}")
+            
+            # 统计多空比例
+            long_count = len(trades_df[trades_df['Type'] == 'Long'])
+            short_count = len(trades_df[trades_df['Type'] == 'Short'])
+            print(f"📊 多头交易: {long_count} 笔, 空头交易: {short_count} 笔")
         
         return trades_df
+    
+    def _pair_trades_by_direction(self, open_orders, close_orders, trades, trade_type):
+        """按方向配对交易（多头或空头）"""
+        used_close_indices = set()
+        
+        for _, open_order in open_orders.iterrows():
+            # 找到这个开仓之后且尚未被使用的平仓订单
+            valid_closes = close_orders[
+                (close_orders['Time'] > open_order['Time']) & 
+                (~close_orders.index.isin(used_close_indices))
+            ]
+            
+            if not valid_closes.empty:
+                # 选择最近的平仓订单
+                close_order = valid_closes.iloc[0]
+                
+                # 计算真实的交易收益
+                if trade_type == 'Long':
+                    # 多头：买入成本 vs 卖出收入
+                    trade_pnl = abs(close_order['Value']) - abs(open_order['Value'])
+                else:  # Short
+                    # 空头：卖出收入 vs 买入成本（收益计算相反）
+                    trade_pnl = abs(open_order['Value']) - abs(close_order['Value'])
+                
+                # 创建完整交易记录
+                trade = {
+                    'Time': open_order['Time'],
+                    'CloseTime': close_order['Time'],
+                    'Symbol': open_order['Symbol'],
+                    'OpenPrice': open_order['Price'],
+                    'ClosePrice': close_order['Price'],
+                    'Quantity': open_order['AbsQuantity'],
+                    'OpenValue': abs(open_order['Value']),
+                    'CloseValue': abs(close_order['Value']),
+                    'Value': trade_pnl,  # 真实交易净收益
+                    'AbsValue': abs(open_order['Value']),  # 仓位大小
+                    'Duration': (close_order['Time'] - open_order['Time']).total_seconds() / 3600,
+                    'Type': trade_type,  # 'Long' 或 'Short'
+                    'Status': 'Completed',
+                    'Tag': open_order['Tag'] if pd.notna(open_order['Tag']) else '',
+                    'OpenTag': open_order['Tag'] if pd.notna(open_order['Tag']) else '',
+                    'CloseTag': close_order['Tag'] if pd.notna(close_order['Tag']) else ''
+                }
+                trades.append(trade)
+                
+                # 标记已使用的平仓订单
+                used_close_indices.add(close_order.name)
         
     def _categorize_position_size(self):
         """按仓位大小分类 - 智能分布分析"""
