@@ -83,30 +83,36 @@ class OrderAnalyzer:
             return 'Close'
             
     def _pair_open_close_orders(self, filled_data):
-        """配对开平仓订单，计算完整交易的真实收益 - 支持多头和空头"""
+        """配对开平仓订单，计算完整交易的真实收益 - 支持OrderID和传统模式"""
         trades = []
         
         print("开始配对开平仓订单...")
         
-        # 按交易对分组处理
-        for symbol in filled_data['Symbol'].unique():
-            symbol_data = filled_data[filled_data['Symbol'] == symbol].sort_values('Time').reset_index(drop=True)
-            
-            # 分离开仓和平仓订单（基于Tag判断，而非数量符号）
-            open_orders = symbol_data[symbol_data['OrderSide'] == 'Open'].copy()
-            close_orders = symbol_data[symbol_data['OrderSide'] == 'Close'].copy()
-            
-            # 进一步按多空方向分类开仓订单
-            long_opens = open_orders[open_orders['Quantity'] > 0].copy()  # 多头开仓
-            short_opens = open_orders[open_orders['Quantity'] < 0].copy()  # 空头开仓
-            
-            print(f"处理 {symbol}: {len(long_opens)} 多头开仓, {len(short_opens)} 空头开仓, {len(close_orders)} 平仓")
-            
-            # 处理多头交易配对
-            self._pair_trades_by_direction(long_opens, close_orders, trades, 'Long')
-            
-            # 处理空头交易配对
-            self._pair_trades_by_direction(short_opens, close_orders, trades, 'Short')
+        # 检查是否有OrderID列 - 新格式支持
+        if 'OrderID' in filled_data.columns:
+            print("🆕 检测到OrderID列，使用新的分组逻辑")
+            trades = self._group_by_order_id(filled_data)
+        else:
+            print("📜 使用传统配对逻辑")
+            # 按交易对分组处理 - 传统逻辑
+            for symbol in filled_data['Symbol'].unique():
+                symbol_data = filled_data[filled_data['Symbol'] == symbol].sort_values('Time').reset_index(drop=True)
+                
+                # 分离开仓和平仓订单（基于Tag判断，而非数量符号）
+                open_orders = symbol_data[symbol_data['OrderSide'] == 'Open'].copy()
+                close_orders = symbol_data[symbol_data['OrderSide'] == 'Close'].copy()
+                
+                # 进一步按多空方向分类开仓订单
+                long_opens = open_orders[open_orders['Quantity'] > 0].copy()  # 多头开仓
+                short_opens = open_orders[open_orders['Quantity'] < 0].copy()  # 空头开仓
+                
+                print(f"处理 {symbol}: {len(long_opens)} 多头开仓, {len(short_opens)} 空头开仓, {len(close_orders)} 平仓")
+                
+                # 处理多头交易配对
+                self._pair_trades_by_direction(long_opens, close_orders, trades, 'Long')
+                
+                # 处理空头交易配对
+                self._pair_trades_by_direction(short_opens, close_orders, trades, 'Short')
             
         if not trades:
             print("⚠️  未找到匹配的开平仓配对，可能数据格式不符合预期")
@@ -129,6 +135,206 @@ class OrderAnalyzer:
             print(f"📊 多头交易: {long_count} 笔, 空头交易: {short_count} 笔")
         
         return trades_df
+    
+    def _group_by_order_id(self, filled_data):
+        """按OrderID分组处理复杂调仓策略"""
+        trades = []
+        
+        # 按交易对和OrderID分组
+        for symbol in filled_data['Symbol'].unique():
+            symbol_data = filled_data[filled_data['Symbol'] == symbol]
+            
+            print(f"📊 处理交易对 {symbol}")
+            
+            # 按OrderID分组
+            order_groups = symbol_data.groupby('OrderID')
+            
+            for order_id, group in order_groups:
+                # 按时间排序确保操作顺序正确
+                group = group.sort_values('Time').reset_index(drop=True)
+                
+                # 正确计算P&L：Value = Price × Quantity (带符号)
+                # 对于完整交易，需要计算买卖价差产生的实际盈亏
+                net_pnl = self._calculate_correct_pnl(group)
+                
+                # 跳过净收益为0的订单组（可能是不完整的交易）
+                if abs(net_pnl) < 0.01:
+                    continue
+                
+                # 获取第一个和最后一个订单
+                first_order = group.iloc[0]
+                last_order = group.iloc[-1]
+                
+                # 计算持仓时长
+                duration_hours = (last_order['Time'] - first_order['Time']).total_seconds() / 3600
+                
+                # 确定交易类型：基于第一个订单的数量
+                if first_order['Quantity'] > 0:
+                    trade_type = 'Long'  # 多头：先买入
+                else:
+                    trade_type = 'Short'  # 空头：先卖出
+                
+                # 计算加权平均开仓价格和平仓价格
+                open_price, close_price = self._calculate_weighted_prices(group, trade_type)
+                
+                # 计算仓位大小（使用最大绝对值作为仓位规模）
+                position_size = group['AbsValue'].max()
+                
+                # 获取开仓和平仓的tag信息
+                open_tag = first_order['Tag'] if pd.notna(first_order['Tag']) else ''
+                close_tag = last_order['Tag'] if pd.notna(last_order['Tag']) else ''
+                
+                # 创建交易记录
+                trade = {
+                    'Time': first_order['Time'],
+                    'CloseTime': last_order['Time'],
+                    'Symbol': symbol,
+                    'OpenPrice': open_price,
+                    'ClosePrice': close_price,
+                    'Quantity': abs(first_order['Quantity']),  # 使用绝对值统一处理
+                    'OpenValue': position_size,  # 仓位大小
+                    'CloseValue': position_size,  # 平仓价值
+                    'Value': net_pnl,  # 净收益
+                    'AbsValue': position_size,  # 仓位大小用于分类
+                    'Duration': duration_hours,
+                    'Type': trade_type,
+                    'Status': 'Completed',
+                    'Tag': open_tag,
+                    'OpenTag': open_tag,
+                    'CloseTag': close_tag,
+                    'OrderID': order_id,  # 保留OrderID信息
+                    'OrderCount': len(group)  # 记录调仓次数
+                }
+                
+                trades.append(trade)
+                
+                print(f"  💼 {order_id}: {trade_type} | 净收益: {net_pnl:+.2f} | 调仓{len(group)}次 | 持仓{duration_hours:.1f}h")
+        
+        return trades
+    
+    def _calculate_weighted_prices(self, group, trade_type):
+        """计算加权平均的开仓和平仓价格"""
+        # 分离买入和卖出订单
+        buy_orders = group[group['Quantity'] > 0]
+        sell_orders = group[group['Quantity'] < 0]
+        
+        if trade_type == 'Long':
+            # 多头：买入是开仓，卖出是平仓
+            if len(buy_orders) > 0:
+                # 加权平均开仓价格
+                buy_weights = buy_orders['Quantity']
+                open_price = (buy_orders['Price'] * buy_weights).sum() / buy_weights.sum()
+            else:
+                open_price = group.iloc[0]['Price']
+                
+            if len(sell_orders) > 0:
+                # 加权平均平仓价格
+                sell_weights = abs(sell_orders['Quantity'])
+                close_price = (sell_orders['Price'] * sell_weights).sum() / sell_weights.sum()
+            else:
+                close_price = group.iloc[-1]['Price']
+        else:
+            # 空头：卖出是开仓，买入是平仓
+            if len(sell_orders) > 0:
+                # 加权平均开仓价格
+                sell_weights = abs(sell_orders['Quantity'])
+                open_price = (sell_orders['Price'] * sell_weights).sum() / sell_weights.sum()
+            else:
+                open_price = group.iloc[0]['Price']
+                
+            if len(buy_orders) > 0:
+                # 加权平均平仓价格
+                buy_weights = buy_orders['Quantity']
+                close_price = (buy_orders['Price'] * buy_weights).sum() / buy_weights.sum()
+            else:
+                close_price = group.iloc[-1]['Price']
+        
+        return open_price, close_price
+    
+    def _calculate_orderid_pnl(self, group):
+        """正确计算OrderID的净盈亏
+        
+        Value字段表示现金流变化：
+        - 买入时：Quantity>0, Value>0 (现金增加，但这是成本)
+        - 卖出时：Quantity<0, Value<0 (现金减少，但这是收入)
+        
+        真实P&L = 所有卖出收入 - 所有买入成本
+        """
+        buy_orders = group[group['Quantity'] > 0]  # 买入订单
+        sell_orders = group[group['Quantity'] < 0]  # 卖出订单
+        
+        # 买入成本 = 买入时的绝对Value值之和
+        buy_cost = buy_orders['Value'].abs().sum() if len(buy_orders) > 0 else 0
+        
+        # 卖出收入 = 卖出时的绝对Value值之和  
+        sell_income = sell_orders['Value'].abs().sum() if len(sell_orders) > 0 else 0
+        
+        # 确定交易类型
+        if len(buy_orders) > 0 and len(sell_orders) > 0:
+            # 有买有卖，根据第一个订单判断主要方向
+            first_order = group.iloc[0]
+            if first_order['Quantity'] > 0:
+                # 先买后卖：多头
+                net_pnl = sell_income - buy_cost
+            else:
+                # 先卖后买：空头
+                net_pnl = buy_cost - sell_income
+        elif len(sell_orders) > 0:
+            # 只有卖出：可能是空头开仓或多头平仓
+            # 根据Tag判断
+            first_order = group.iloc[0]
+            if any('CLOSE' in str(tag).upper() for tag in group['Tag']):
+                # 平仓操作，应该有对应的开仓
+                net_pnl = -sell_income  # 卖出减少资产
+            else:
+                # 空头开仓
+                net_pnl = sell_income  # 空头卖出获得现金
+        elif len(buy_orders) > 0:
+            # 只有买入：可能是多头开仓或空头平仓  
+            if any('CLOSE' in str(tag).upper() for tag in group['Tag']):
+                # 平仓操作
+                net_pnl = buy_cost  # 买入增加资产
+            else:
+                # 多头开仓
+                net_pnl = -buy_cost  # 多头买入支出现金
+        else:
+            net_pnl = 0
+        
+        return net_pnl
+    
+    def _calculate_correct_pnl(self, group):
+        """正确计算OrderID的实际盈亏
+        
+        Value = Price × Quantity (带符号)
+        对于交易：买卖价差 × 数量 = 实际盈亏
+        
+        空头: 先卖后买，盈亏 = 卖出价格 - 买入价格  
+        多头: 先买后卖，盈亏 = 卖出价格 - 买入价格
+        """
+        buy_orders = group[group['Quantity'] > 0]  # 买入
+        sell_orders = group[group['Quantity'] < 0]  # 卖出
+        
+        if len(buy_orders) == 0 or len(sell_orders) == 0:
+            # 不完整交易，返回0
+            return 0
+        
+        # 计算加权平均价格
+        buy_total_value = buy_orders['Value'].sum()  # 总买入金额
+        buy_total_quantity = buy_orders['Quantity'].sum()  # 总买入数量
+        avg_buy_price = buy_total_value / buy_total_quantity if buy_total_quantity > 0 else 0
+        
+        sell_total_value = sell_orders['Value'].sum()  # 总卖出金额(负数)
+        sell_total_quantity = sell_orders['Quantity'].sum()  # 总卖出数量(负数) 
+        avg_sell_price = sell_total_value / sell_total_quantity if sell_total_quantity < 0 else 0
+        
+        # 使用最小数量作为交易量(避免不平衡)
+        trade_quantity = min(abs(buy_total_quantity), abs(sell_total_quantity))
+        
+        # 计算实际盈亏: (卖出价格 - 买入价格) × 交易数量
+        price_diff = avg_sell_price - avg_buy_price
+        net_pnl = price_diff * trade_quantity
+        
+        return net_pnl
     
     def _pair_trades_by_direction(self, open_orders, close_orders, trades, trade_type):
         """按方向配对交易（多头或空头）"""
