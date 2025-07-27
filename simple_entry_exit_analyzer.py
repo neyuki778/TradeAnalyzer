@@ -404,22 +404,47 @@ class SimpleEntryExitAnalyzer:
             exit_time = trade.get('CloseTime')
             exit_price = trade.get('ClosePrice')
             pnl = trade['Value']
+            trade_type = trade.get('Type', 'Long')  # 获取交易类型
             
             # 获取出场原因
             close_tag = str(trade.get('CloseTag', ''))
             exit_reason = self._extract_exit_reason(close_tag)
             
-            # 买入点（绿色向上三角形）
-            ax1.scatter(entry_time, entry_price, color='green', s=120, marker='^', 
-                       label='买入' if trades.index[0] == trade.name else "", 
-                       zorder=5, edgecolors='darkgreen', linewidth=1)
+            # 根据交易类型设置不同的标记样式
+            if trade_type == 'Long':
+                # 多头：绿色向上三角形为开仓，红色向下三角形为平仓
+                entry_color = 'green'
+                entry_marker = '^'
+                entry_edge_color = 'darkgreen'
+                entry_label = '多头开仓'
+                
+                exit_color = 'red'
+                exit_marker = 'v'
+                exit_edge_color = 'darkred'
+                exit_label = '多头平仓'
+            else:  # Short
+                # 空头：红色向下三角形为开仓，绿色向上三角形为平仓
+                entry_color = 'red'
+                entry_marker = 'v'
+                entry_edge_color = 'darkred'
+                entry_label = '空头开仓'
+                
+                exit_color = 'green'
+                exit_marker = '^'
+                exit_edge_color = 'darkgreen'
+                exit_label = '空头平仓'
             
-            # 如果有卖出信息
+            # 开仓点标记
+            ax1.scatter(entry_time, entry_price, color=entry_color, s=120, marker=entry_marker, 
+                       label=entry_label if trades.index[0] == trade.name else "", 
+                       zorder=5, edgecolors=entry_edge_color, linewidth=1)
+            
+            # 如果有平仓信息
             if pd.notna(exit_time) and pd.notna(exit_price):
-                # 卖出点（红色向下三角形）
-                ax1.scatter(exit_time, exit_price, color='red', s=120, marker='v', 
-                           label='卖出' if trades.index[0] == trade.name else "", 
-                           zorder=5, edgecolors='darkred', linewidth=1)
+                # 平仓点标记
+                ax1.scatter(exit_time, exit_price, color=exit_color, s=120, marker=exit_marker, 
+                           label=exit_label if trades.index[0] == trade.name else "", 
+                           zorder=5, edgecolors=exit_edge_color, linewidth=1)
                 
                 # 连接线
                 line_color = 'green' if pnl > 0 else 'red'
@@ -477,14 +502,16 @@ class SimpleEntryExitAnalyzer:
                     else:
                         return f"{price:.4f}"
                 
+                # 标签内容根据交易类型调整
+                direction_label = "多" if trade_type == 'Long' else "空"
                 label_lines = [
-                    f'入: {format_price(entry_price)}',
-                    f'出: {format_price(exit_price)}'
+                    f'{direction_label}入: {format_price(entry_price)}',
+                    f'{direction_label}出: {format_price(exit_price)}'
                 ]
                 
                 # 如果有出场原因，添加到标签中
                 if exit_reason:
-                    label_lines.append(f'原因: {exit_reason}')
+                    label_lines.append(f'{exit_reason}')
                 
                 label_lines.extend([
                     f'仓: {position_ratio:.2f}%',
