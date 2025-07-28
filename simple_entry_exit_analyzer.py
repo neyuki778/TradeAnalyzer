@@ -397,141 +397,8 @@ class SimpleEntryExitAnalyzer:
                            facecolor=color, edgecolor='black', alpha=0.8, linewidth=0.5)
             ax1.add_patch(rect)
         
-        # 标注买卖点
-        for _, trade in trades.iterrows():
-            entry_time = trade['Time']
-            entry_price = trade['OpenPrice']
-            exit_time = trade.get('CloseTime')
-            exit_price = trade.get('ClosePrice')
-            pnl = trade['Value']
-            trade_type = trade.get('Type', 'Long')  # 获取交易类型
-            
-            # 获取出场原因
-            close_tag = str(trade.get('CloseTag', ''))
-            exit_reason = self._extract_exit_reason(close_tag)
-            
-            # 根据交易类型设置不同的标记样式
-            if trade_type == 'Long':
-                # 多头：绿色向上三角形为开仓，红色向下三角形为平仓
-                entry_color = 'green'
-                entry_marker = '^'
-                entry_edge_color = 'darkgreen'
-                entry_label = '多头开仓'
-                
-                exit_color = 'red'
-                exit_marker = 'v'
-                exit_edge_color = 'darkred'
-                exit_label = '多头平仓'
-            else:  # Short
-                # 空头：红色向下三角形为开仓，绿色向上三角形为平仓
-                entry_color = 'red'
-                entry_marker = 'v'
-                entry_edge_color = 'darkred'
-                entry_label = '空头开仓'
-                
-                exit_color = 'green'
-                exit_marker = '^'
-                exit_edge_color = 'darkgreen'
-                exit_label = '空头平仓'
-            
-            # 开仓点标记
-            ax1.scatter(entry_time, entry_price, color=entry_color, s=120, marker=entry_marker, 
-                       label=entry_label if trades.index[0] == trade.name else "", 
-                       zorder=5, edgecolors=entry_edge_color, linewidth=1)
-            
-            # 如果有平仓信息
-            if pd.notna(exit_time) and pd.notna(exit_price):
-                # 平仓点标记
-                ax1.scatter(exit_time, exit_price, color=exit_color, s=120, marker=exit_marker, 
-                           label=exit_label if trades.index[0] == trade.name else "", 
-                           zorder=5, edgecolors=exit_edge_color, linewidth=1)
-                
-                # 连接线
-                line_color = 'green' if pnl > 0 else 'red'
-                line_alpha = 0.7 if pnl > 0 else 0.5
-                ax1.plot([entry_time, exit_time], [entry_price, exit_price], 
-                        color=line_color, alpha=line_alpha, linewidth=2, linestyle='-')
-                
-                # 交易信息标注
-                mid_time = entry_time + (exit_time - entry_time) / 2
-                mid_price = (entry_price + exit_price) / 2
-                
-                # 获取仓位大小信息和比例
-                position_size = abs(trade.get('AbsValue', 0))
-                tag_str = str(trade.get('Tag', '0'))
-                
-                # 解析Tag中的数值（去除逗号）
-                try:
-                    tag_value = float(tag_str.replace(',', '').replace('"', ''))
-                    position_ratio = (position_size / tag_value) * 100 if tag_value > 0 else 0
-                except:
-                    position_ratio = 0
-                
-                # 计算持仓时间
-                if pd.notna(exit_time) and pd.notna(entry_time):
-                    holding_duration = exit_time - entry_time
-                    
-                    # 格式化持仓时间
-                    total_hours = holding_duration.total_seconds() / 3600
-                    if total_hours < 1:
-                        duration_str = f"{int(holding_duration.total_seconds() / 60)}m"
-                    elif total_hours < 24:
-                        duration_str = f"{total_hours:.1f}h"
-                    else:
-                        days = int(total_hours / 24)
-                        remaining_hours = total_hours % 24
-                        if remaining_hours < 1:
-                            duration_str = f"{days}d"
-                        else:
-                            duration_str = f"{days}d{remaining_hours:.0f}h"
-                else:
-                    duration_str = "未知"
-                
-                # 构建标签文本：入场价格、出场价格、出场原因、仓位百分比、持仓时间  
-                # 智能价格格式化：根据价格大小选择合适的小数位数
-                def format_price(price):
-                    price = float(price)
-                    if price >= 100:
-                        return f"{price:.0f}"
-                    elif price >= 10:
-                        return f"{price:.1f}"
-                    elif price >= 1:
-                        return f"{price:.2f}"
-                    elif price >= 0.1:
-                        return f"{price:.3f}"
-                    else:
-                        return f"{price:.4f}"
-                
-                # 标签内容根据交易类型调整
-                direction_label = "多" if trade_type == 'Long' else "空"
-                label_lines = [
-                    f'{direction_label}入: {format_price(entry_price)}',
-                    f'{direction_label}出: {format_price(exit_price)}'
-                ]
-                
-                # 如果有出场原因，添加到标签中
-                if exit_reason:
-                    label_lines.append(f'{exit_reason}')
-                
-                label_lines.extend([
-                    f'仓: {position_ratio:.2f}%',
-                    f'时: {duration_str}'
-                ])
-                
-                label_text = '\n'.join(label_lines)
-                
-                bbox_color = 'lightgreen' if pnl > 0 else 'lightcoral'
-                ax1.annotate(label_text, (mid_time, mid_price), 
-                           textcoords="offset points", xytext=(0,15), ha='center',
-                           bbox=dict(boxstyle="round,pad=0.3", facecolor=bbox_color, alpha=0.8),
-                           fontsize=8, fontweight='bold')
-                
-                # 在出场点单独标注出场原因（如果存在）
-                if exit_reason:
-                    ax1.annotate(exit_reason, (exit_time, exit_price), 
-                               textcoords="offset points", xytext=(10, -20), ha='left',
-                               bbox=dict(boxstyle="round,pad=0.2", facecolor='yellow', alpha=0.9),
-                               fontsize=7, fontweight='bold', color='red')
+        # 标注买卖点 - 新逻辑：每个OrderID只显示首尾订单
+        self._plot_orderid_markers(ax1, symbol, trades, start_date, end_date)
         
         # 设置主图标题
         time_range_str = ""
@@ -609,6 +476,197 @@ class SimpleEntryExitAnalyzer:
         
         plt.show()
         return fig
+    
+    def _plot_orderid_markers(self, ax1, symbol, trades, start_date=None, end_date=None):
+        """从原始订单数据中提取每个OrderID的首尾订单进行标记"""
+        if not hasattr(self.analyzer, 'raw_data') or 'OrderID' not in self.analyzer.raw_data.columns:
+            # 如果没有原始数据或OrderID，回退到传统标记
+            self._plot_traditional_markers(ax1, trades)
+            return
+        
+        # 过滤当前symbol的原始订单数据
+        raw_symbol_data = self.analyzer.raw_data[
+            (self.analyzer.raw_data['Symbol'] == symbol) & 
+            (self.analyzer.raw_data['Status'] == 'Filled')
+        ].copy()
+        
+        if raw_symbol_data.empty:
+            return
+        
+        # 转换时间格式并处理时区
+        raw_symbol_data['Time'] = pd.to_datetime(raw_symbol_data['Time'])
+        if raw_symbol_data['Time'].dt.tz is not None:
+            raw_symbol_data['Time'] = raw_symbol_data['Time'].dt.tz_convert('UTC').dt.tz_localize(None)
+        
+        # 按时间段过滤
+        if start_date:
+            start_dt = pd.to_datetime(start_date)
+            raw_symbol_data = raw_symbol_data[raw_symbol_data['Time'] >= start_dt]
+        if end_date:
+            end_dt = pd.to_datetime(end_date)
+            raw_symbol_data = raw_symbol_data[raw_symbol_data['Time'] <= end_dt]
+        
+        # 按OrderID分组
+        order_groups = raw_symbol_data.groupby('OrderID')
+        
+        # 用于避免重复图例
+        legend_added = {'多头开仓': False, '多头平仓': False, '空头开仓': False, '空头平仓': False}
+        
+        for order_id, group in order_groups:
+            if len(group) < 2:
+                continue  # 跳过不完整的订单组
+            
+            # 按时间排序
+            group = group.sort_values('Time').reset_index(drop=True)
+            
+            # 获取首尾订单
+            first_order = group.iloc[0]
+            last_order = group.iloc[-1]
+            
+            # 确定交易类型（基于第一个订单的数量符号）
+            if first_order['Quantity'] > 0:
+                trade_type = 'Long'  # 多头：先买入
+                entry_color = 'green'
+                entry_marker = '^'
+                entry_edge_color = 'darkgreen'
+                entry_label = '多头开仓'
+                exit_color = 'red'
+                exit_marker = 'v'
+                exit_edge_color = 'darkred'
+                exit_label = '多头平仓'
+            else:
+                trade_type = 'Short'  # 空头：先卖出
+                entry_color = 'red'
+                entry_marker = 'v'
+                entry_edge_color = 'darkred'
+                entry_label = '空头开仓'
+                exit_color = 'green'
+                exit_marker = '^'
+                exit_edge_color = 'darkgreen'
+                exit_label = '空头平仓'
+            
+            # 绘制开仓点
+            ax1.scatter(first_order['Time'], first_order['Price'], 
+                       color=entry_color, s=120, marker=entry_marker,
+                       label=entry_label if not legend_added[entry_label] else "",
+                       zorder=5, edgecolors=entry_edge_color, linewidth=1)
+            legend_added[entry_label] = True
+            
+            # 绘制平仓点
+            ax1.scatter(last_order['Time'], last_order['Price'],
+                       color=exit_color, s=120, marker=exit_marker,
+                       label=exit_label if not legend_added[exit_label] else "",
+                       zorder=5, edgecolors=exit_edge_color, linewidth=1)
+            legend_added[exit_label] = True
+            
+            # 连接线
+            # 从trades数据中找到对应的P&L信息
+            corresponding_trade = trades[trades.get('OrderID') == order_id]
+            if not corresponding_trade.empty:
+                pnl = corresponding_trade.iloc[0]['Value']
+                line_color = 'green' if pnl > 0 else 'red'
+                line_alpha = 0.7 if pnl > 0 else 0.5
+            else:
+                line_color = 'gray'
+                line_alpha = 0.5
+            
+            ax1.plot([first_order['Time'], last_order['Time']], 
+                    [first_order['Price'], last_order['Price']],
+                    color=line_color, alpha=line_alpha, linewidth=2, linestyle='-')
+            
+            # 添加订单信息标注
+            self._add_orderid_annotation(ax1, order_id, first_order, last_order, group, trades)
+    
+    def _add_orderid_annotation(self, ax1, order_id, first_order, last_order, group, trades):
+        """为OrderID添加信息标注"""
+        # 计算中点位置
+        mid_time = first_order['Time'] + (last_order['Time'] - first_order['Time']) / 2
+        mid_price = (first_order['Price'] + last_order['Price']) / 2
+        
+        # 从trades数据中获取P&L信息
+        corresponding_trade = trades[trades.get('OrderID') == order_id]
+        if not corresponding_trade.empty:
+            trade_info = corresponding_trade.iloc[0]
+            pnl = trade_info['Value']
+            
+            # 计算持仓时间
+            holding_duration = last_order['Time'] - first_order['Time']
+            total_hours = holding_duration.total_seconds() / 3600
+            
+            if total_hours < 1:
+                duration_str = f"{int(holding_duration.total_seconds() / 60)}m"
+            elif total_hours < 24:
+                duration_str = f"{total_hours:.1f}h"
+            else:
+                days = int(total_hours / 24)
+                remaining_hours = total_hours % 24
+                if remaining_hours < 1:
+                    duration_str = f"{days}d"
+                else:
+                    duration_str = f"{days}d{remaining_hours:.0f}h"
+            
+            # 智能价格格式化
+            def format_price(price):
+                price = float(price)
+                if price >= 100:
+                    return f"{price:.0f}"
+                elif price >= 10:
+                    return f"{price:.1f}"
+                elif price >= 1:
+                    return f"{price:.2f}"
+                elif price >= 0.1:
+                    return f"{price:.3f}"
+                else:
+                    return f"{price:.4f}"
+            
+            # 确定交易方向
+            direction_label = "多" if first_order['Quantity'] > 0 else "空"
+            
+            # 构建标签
+            label_lines = [
+                f'{direction_label}入: {format_price(first_order["Price"])}',
+                f'{direction_label}出: {format_price(last_order["Price"])}',
+                f'调仓: {len(group)}次',
+                f'P&L: {pnl:+.0f}',
+                f'时长: {duration_str}'
+            ]
+            
+            # 获取出场原因
+            close_tag = str(last_order.get('Tag', ''))
+            exit_reason = self._extract_exit_reason(close_tag)
+            if exit_reason:
+                label_lines.insert(-2, f'原因: {exit_reason}')
+            
+            label_text = '\n'.join(label_lines)
+            
+            # 根据盈亏设置标注颜色
+            bbox_color = 'lightgreen' if pnl > 0 else 'lightcoral'
+            
+            ax1.annotate(label_text, (mid_time, mid_price),
+                        textcoords="offset points", xytext=(0, 15), ha='center',
+                        bbox=dict(boxstyle="round,pad=0.3", facecolor=bbox_color, alpha=0.8),
+                        fontsize=8, fontweight='bold')
+    
+    def _plot_traditional_markers(self, ax1, trades):
+        """传统标记方式（回退方案）"""
+        for _, trade in trades.iterrows():
+            entry_time = trade['Time']
+            entry_price = trade['OpenPrice']
+            exit_time = trade.get('CloseTime')
+            exit_price = trade.get('ClosePrice')
+            
+            if pd.notna(exit_time) and pd.notna(exit_price):
+                trade_type = trade.get('Type', 'Long')
+                
+                if trade_type == 'Long':
+                    entry_color, entry_marker = 'green', '^'
+                    exit_color, exit_marker = 'red', 'v'
+                else:
+                    entry_color, entry_marker = 'red', 'v'  
+                    exit_color, exit_marker = 'green', '^'
+                
+                ax1.scatter(entry_time, entry_price, color=entry_color, s=120, marker=entry_marker, zorder=5)
+                ax1.scatter(exit_time, exit_price, color=exit_color, s=120, marker=exit_marker, zorder=5)
     
     def analyze_symbol(self, symbol, start_date=None, end_date=None):
         """分析指定交易对的完整流程"""
