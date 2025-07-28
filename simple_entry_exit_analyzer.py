@@ -242,6 +242,47 @@ class SimpleEntryExitAnalyzer:
         print(f"🔄 生成符号变体: {alternatives}")
         return alternatives
     
+    def _adjust_kline_timestamp(self, timestamps):
+        """调整K线时间戳以修复与订单时间的对齐问题
+        
+        K线时间戳通常是开盘时间，但订单时间是实际执行时间
+        需要将K线时间戳调整到时间段的中点，这样订单能正确对应到相应K线
+        """
+        if len(timestamps) < 2:
+            return timestamps
+        
+        # 自动检测时间间隔
+        time_diff = timestamps.iloc[1] - timestamps.iloc[0]
+        
+        # 根据时间间隔确定偏移量（调整到时间段中点）
+        if time_diff.total_seconds() <= 60:  # 1分钟
+            offset = pd.Timedelta(seconds=30)
+            print("🕐 检测到1分钟K线，调整时间戳+30秒")
+        elif time_diff.total_seconds() <= 300:  # 5分钟
+            offset = pd.Timedelta(minutes=2.5)
+            print("🕐 检测到5分钟K线，调整时间戳+2.5分钟")
+        elif time_diff.total_seconds() <= 900:  # 15分钟
+            offset = pd.Timedelta(minutes=7.5)
+            print("🕐 检测到15分钟K线，调整时间戳+7.5分钟")
+        elif time_diff.total_seconds() <= 3600:  # 1小时
+            offset = pd.Timedelta(minutes=30)
+            print("🕐 检测到1小时K线，调整时间戳+30分钟")
+        elif time_diff.total_seconds() <= 14400:  # 4小时
+            offset = pd.Timedelta(hours=2)
+            print("🕐 检测到4小时K线，调整时间戳+2小时")
+        elif time_diff.total_seconds() <= 86400:  # 1天
+            offset = pd.Timedelta(hours=12)
+            print("🕐 检测到日线K线，调整时间戳+12小时")
+        else:  # 1周或更长
+            offset = pd.Timedelta(days=3.5)
+            print("🕐 检测到周线或更长周期，调整时间戳+3.5天")
+        
+        # 应用时间偏移
+        adjusted_timestamps = timestamps + offset
+        print(f"⏰ K线时间调整完成，样例：{timestamps.iloc[0]} -> {adjusted_timestamps.iloc[0]}")
+        
+        return adjusted_timestamps
+    
     def _load_market_data(self, file_path):
         """加载市场数据"""
         try:
@@ -279,6 +320,10 @@ class SimpleEntryExitAnalyzer:
                         df['timestamp'] = pd.to_datetime(df[first_col], format='ISO8601')
                     except:
                         df['timestamp'] = pd.to_datetime(df[first_col], infer_datetime_format=True)
+            
+            # 🔧 修复时间对齐问题：调整K线时间戳到时间段中点
+            # 这样订单时间就能正确对应到相应的K线
+            df['timestamp'] = self._adjust_kline_timestamp(df['timestamp'])
             
             # 重命名OHLCV列 - 适配不同的列名格式
             col_mapping = {}
