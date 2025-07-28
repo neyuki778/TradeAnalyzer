@@ -478,7 +478,7 @@ class SimpleEntryExitAnalyzer:
         return fig
     
     def _plot_orderid_markers(self, ax1, symbol, trades, start_date=None, end_date=None):
-        """从原始订单数据中提取每个OrderID的首尾订单进行标记"""
+        """从原始订单数据中提取每个OrderID的所有订单进行标记"""
         if not hasattr(self.analyzer, 'raw_data') or 'OrderID' not in self.analyzer.raw_data.columns:
             # 如果没有原始数据或OrderID，回退到传统标记
             self._plot_traditional_markers(ax1, trades)
@@ -510,7 +510,7 @@ class SimpleEntryExitAnalyzer:
         order_groups = raw_symbol_data.groupby('OrderID')
         
         # 用于避免重复图例
-        legend_added = {'多头开仓': False, '多头平仓': False, '空头开仓': False, '空头平仓': False}
+        legend_added = {'多头开仓': False, '多头平仓': False, '空头开仓': False, '空头平仓': False, '调仓': False}
         
         for order_id, group in order_groups:
             if len(group) < 2:
@@ -545,21 +545,48 @@ class SimpleEntryExitAnalyzer:
                 exit_edge_color = 'darkgreen'
                 exit_label = '空头平仓'
             
-            # 绘制开仓点
+            # 绘制开仓点（大三角形）
             ax1.scatter(first_order['Time'], first_order['Price'], 
                        color=entry_color, s=120, marker=entry_marker,
                        label=entry_label if not legend_added[entry_label] else "",
                        zorder=5, edgecolors=entry_edge_color, linewidth=1)
             legend_added[entry_label] = True
             
-            # 绘制平仓点
+            # 绘制平仓点（大三角形）
             ax1.scatter(last_order['Time'], last_order['Price'],
                        color=exit_color, s=120, marker=exit_marker,
                        label=exit_label if not legend_added[exit_label] else "",
                        zorder=5, edgecolors=exit_edge_color, linewidth=1)
             legend_added[exit_label] = True
             
-            # 连接线
+            # 绘制中间调仓订单（小圆点）
+            if len(group) > 2:
+                middle_orders = group.iloc[1:-1]  # 排除首尾订单
+                for _, middle_order in middle_orders.iterrows():
+                    # 根据订单类型确定颜色
+                    if middle_order['Quantity'] > 0:  # 买入
+                        marker_color = 'lightgreen'
+                        marker_symbol = 'o'
+                    else:  # 卖出
+                        marker_color = 'lightcoral'
+                        marker_symbol = 'o'
+                    
+                    # 绘制调仓点
+                    ax1.scatter(middle_order['Time'], middle_order['Price'],
+                               color=marker_color, s=60, marker=marker_symbol,
+                               label='调仓' if not legend_added['调仓'] else "",
+                               zorder=4, edgecolors='gray', linewidth=0.5, alpha=0.8)
+                    legend_added['调仓'] = True
+                    
+                    # 添加简洁标签
+                    self._add_simple_adjustment_label(ax1, middle_order)
+                    
+                    # 用虚线连接到首订单
+                    ax1.plot([first_order['Time'], middle_order['Time']], 
+                            [first_order['Price'], middle_order['Price']],
+                            color='gray', alpha=0.4, linewidth=1, linestyle='--')
+            
+            # 主连接线（首尾订单）
             # 从trades数据中找到对应的P&L信息
             corresponding_trade = trades[trades.get('OrderID') == order_id]
             if not corresponding_trade.empty:
@@ -576,6 +603,55 @@ class SimpleEntryExitAnalyzer:
             
             # 添加订单信息标注
             self._add_orderid_annotation(ax1, order_id, first_order, last_order, group, trades)
+    
+    def _add_simple_adjustment_label(self, ax1, order):
+        """为调仓订单添加简洁标签"""
+        # 智能价格格式化
+        def format_price(price):
+            price = float(price)
+            if price >= 100:
+                return f"{price:.0f}"
+            elif price >= 10:
+                return f"{price:.1f}"
+            elif price >= 1:
+                return f"{price:.2f}"
+            elif price >= 0.1:
+                return f"{price:.3f}"
+            else:
+                return f"{price:.4f}"
+        
+        # 智能仓位格式化
+        def format_position(value):
+            value = abs(float(value))
+            if value >= 10000:
+                return f"{value/1000:.0f}K"
+            elif value >= 1000:
+                return f"{value/1000:.1f}K"
+            else:
+                return f"{value:.0f}"
+        
+        # 确定订单类型标签
+        action = "买" if order['Quantity'] > 0 else "卖"
+        
+        # 构建简洁标签
+        price_str = format_price(order['Price'])
+        position_str = format_position(order['Value'])
+        
+        label_text = f"{action}:{price_str}\n{position_str}"
+        
+        # 根据买卖方向设置标签颜色
+        if order['Quantity'] > 0:  # 买入
+            label_color = 'lightgreen'
+            text_color = 'darkgreen'
+        else:  # 卖出
+            label_color = 'lightcoral'
+            text_color = 'darkred'
+        
+        # 添加标注
+        ax1.annotate(label_text, (order['Time'], order['Price']),
+                    textcoords="offset points", xytext=(0, 10), ha='center',
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor=label_color, alpha=0.7),
+                    fontsize=7, fontweight='bold', color=text_color)
     
     def _add_orderid_annotation(self, ax1, order_id, first_order, last_order, group, trades):
         """为OrderID添加信息标注"""
@@ -675,6 +751,11 @@ class SimpleEntryExitAnalyzer:
         if start_date or end_date:
             print(f"📅 分析时间段: {start_date or '开始'} 到 {end_date or '结束'}")
         print(f"{'='*60}")
+        
+        # 检查交易数据是否存在
+        if self.trades_data is None or len(self.trades_data) == 0:
+            print(f"❌ 没有可用的交易数据")
+            return
         
         # 筛选该交易对的数据
         symbol_trades = self.trades_data[self.trades_data['Symbol'] == symbol].copy()
